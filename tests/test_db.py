@@ -31,6 +31,12 @@ class TestInitDb:
         )
         assert cursor.fetchone() is not None
 
+    def test_creates_job_notes_table(self, tmp_db: sqlite3.Connection):
+        cursor = tmp_db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='job_notes'"
+        )
+        assert cursor.fetchone() is not None
+
     def test_creates_status_index(self, tmp_db: sqlite3.Connection):
         cursor = tmp_db.execute(
             "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_jobs_status'"
@@ -40,6 +46,18 @@ class TestInitDb:
     def test_creates_fetched_at_index(self, tmp_db: sqlite3.Connection):
         cursor = tmp_db.execute(
             "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_jobs_fetched_at'"
+        )
+        assert cursor.fetchone() is not None
+
+    def test_creates_status_updated_at_index(self, tmp_db: sqlite3.Connection):
+        cursor = tmp_db.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_jobs_status_updated_at'"
+        )
+        assert cursor.fetchone() is not None
+
+    def test_creates_job_notes_index(self, tmp_db: sqlite3.Connection):
+        cursor = tmp_db.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_job_notes_job_id_created_at'"
         )
         assert cursor.fetchone() is not None
 
@@ -156,6 +174,7 @@ class TestUpsertJobBranchB:
         assert row["status"] == "new"
         assert row["updated_at"] is None
         assert row["fetched_at"] is not None
+        assert row["status_updated_at"] is not None
 
     def test_posted_at_stored(self, tmp_db, sample_card):
         upsert_job(tmp_db, sample_card, "jd text", "aaa")
@@ -207,21 +226,24 @@ class TestUpsertJobRepost:
 
 
 def _seed_jobs(conn: sqlite3.Connection) -> None:
-    """Insert a variety of jobs for filter/sort tests."""
+    """Insert a variety of jobs for filter/sort tests.
+
+    Uses Phase 2a canonical status values.
+    """
     jobs = [
         ("1111111111", "Backend Engineer", "Stripe", "SF, CA", "2026-02-20", "new"),
-        ("2222222222", "Frontend Engineer", "Google", "NY, NY", "2026-02-15", "tailoring"),
+        ("2222222222", "Frontend Engineer", "Google", "NY, NY", "2026-02-15", "tailored"),
         ("3333333333", "Staff Engineer", "Stripe", "Remote", "2026-02-10", "applied"),
         ("4444444444", "DevOps Engineer", "Meta", "Seattle, WA", "2026-02-05", "new"),
-        ("5555555555", "Data Scientist", "OpenAI", "SF, CA", "2026-01-30", "rejected"),
+        ("5555555555", "Data Scientist", "OpenAI", "SF, CA", "2026-01-30", "skipped"),
     ]
     for pid, title, company, location, posted, status in jobs:
         conn.execute(
             """INSERT INTO jobs
                (platform, platform_id, title, company, location, posted_at,
-                job_url, jd_text, jd_hash, status, fetched_at, updated_at)
+                job_url, jd_text, jd_hash, status, fetched_at, updated_at, status_updated_at)
                VALUES ('linkedin', ?, ?, ?, ?, ?,
-                       'https://example.com', 'desc', 'hash', ?, '2026-02-25T10:00:00Z', NULL)""",
+                       'https://example.com', 'desc', 'hash', ?, '2026-02-25T10:00:00Z', NULL, '2026-02-25T10:00:00Z')""",
             (pid, title, company, location, posted, status),
         )
     conn.commit()
@@ -241,9 +263,9 @@ class TestQueryJobs:
 
     def test_filter_by_status_multiple(self, tmp_db):
         _seed_jobs(tmp_db)
-        rows = query_jobs(tmp_db, status="new,tailoring")
+        rows = query_jobs(tmp_db, status="new,tailored")
         statuses = {r["status"] for r in rows}
-        assert statuses == {"new", "tailoring"}
+        assert statuses == {"new", "tailored"}
         assert len(rows) == 3
 
     def test_filter_by_company_case_insensitive(self, tmp_db):
@@ -319,7 +341,7 @@ class TestGetJob:
         expected_keys = {
             "id", "platform", "platform_id", "title", "company", "location",
             "posted_at", "job_url", "jd_text", "jd_hash", "status",
-            "fetched_at", "updated_at",
+            "fetched_at", "updated_at", "status_updated_at",
         }
         assert set(job.keys()) == expected_keys
         assert job["jd_text"] == "full jd text here"
