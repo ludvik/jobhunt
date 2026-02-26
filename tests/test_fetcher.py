@@ -311,3 +311,22 @@ class TestScrollLoop:
         assert cards == []
         captured = capsys.readouterr()
         assert "DOM structure has changed" in captured.err
+
+    def test_scrolls_to_collect_across_multiple_pages(self):
+        """Bug #6: scroll_loop must paginate past the first visible set."""
+        today = datetime.now(timezone.utc).date().isoformat()
+        batch1 = [_make_element("100", today), _make_element("101", today)]
+        batch2 = batch1 + [_make_element("200", today), _make_element("201", today)]
+        batch3 = batch2 + [_make_element("300", today)]
+
+        page = self._make_page([batch1, batch2, batch3] + [[]] * 10)
+
+        cards = list(scroll_loop(page, limit=10, lookback_days=30))
+        assert len(cards) == 5
+        ids = [c.platform_id for c in cards]
+        assert "100" in ids
+        assert "200" in ids
+        assert "300" in ids
+
+        # Verify scroll was invoked (must have called evaluate to scroll)
+        assert page.evaluate.call_count >= 2

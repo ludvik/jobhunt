@@ -150,6 +150,23 @@ class TestUpsertJobBranchA2:
         ).fetchone()
         assert row["jd_hash"] == "aaa"
 
+    def test_near_identical_jd_treated_as_skip(self, tmp_db, sample_card):
+        """Bug #7: minor rendering differences (>= 0.95 similarity) → skipped."""
+        original = "We are looking for a Senior Backend Engineer to join Stripe."
+        # Slightly different whitespace/punctuation — similarity well above 0.95
+        tweaked = "We are looking for a Senior Backend Engineer to join Stripe. "
+        upsert_job(tmp_db, sample_card, original, "aaa")
+        result, _ = upsert_job(tmp_db, sample_card, tweaked, "bbb")
+        assert result == "skipped"
+
+    def test_genuinely_different_jd_returns_updated(self, tmp_db, sample_card):
+        """Bug #7: truly different JD text (< 0.95 similarity) → updated."""
+        original = "We are looking for a Senior Backend Engineer to join Stripe."
+        different = "This is a completely different job description for a Data Scientist at OpenAI."
+        upsert_job(tmp_db, sample_card, original, "aaa")
+        result, _ = upsert_job(tmp_db, sample_card, different, "bbb")
+        assert result == "updated"
+
 
 # ---------------------------------------------------------------------------
 # upsert_job — branch B: new platform_id → insert

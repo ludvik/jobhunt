@@ -51,12 +51,17 @@ _JOB_TITLE_SELECTORS = [
 
 _JOB_COMPANY_SELECTORS = [
     ".base-search-card__subtitle",
-    "p[data-test-job-card-container-subtitle]",
+    "h4.base-search-card__subtitle",
+    "a.hidden-nested-link",
     ".job-card-container__company-name",
+    ".artdeco-entity-lockup__subtitle",
+    "span.job-card-container__primary-description",
+    "p[data-test-job-card-container-subtitle]",
 ]
 
 _JOB_LOCATION_SELECTORS = [
     ".job-search-card__location",
+    ".artdeco-entity-lockup__caption",
     ".job-card-container__metadata-item",
     ".job-card-container__metadata-wrapper",
 ]
@@ -111,6 +116,64 @@ def _extract_platform_id(el) -> str:
         if legacy_id.isdigit():
             return legacy_id
     return ""
+
+
+_JOB_DATE_SELECTORS = [
+    "time[datetime]",
+    "span.job-search-card__listdate",
+    "span.job-search-card__listdate--new",
+    "span[class*='listdate']",
+    "time",
+]
+
+
+def _extract_posted_at(el) -> datetime | None:
+    """Extract posted_at datetime from a job card element.
+
+    Tries multiple selector strategies:
+    1. time[datetime] attribute (ISO date)
+    2. span.job-search-card__listdate (relative text like '2 days ago')
+    3. Any element with class containing 'listdate'
+    4. Bare <time> element inner text
+    """
+    # Strategy 1: time[datetime] attribute
+    try:
+        time_el = _locator_first(el.locator("time[datetime]"))
+        count = time_el.count()
+        if (not isinstance(count, int)) or count > 0:
+            datetime_attr = time_el.get_attribute("datetime")
+            result = parse_iso(datetime_attr)
+            if result is not None:
+                return result
+    except Exception:
+        pass
+
+    # Strategy 2–3: text-based date selectors
+    for selector in _JOB_DATE_SELECTORS[1:]:
+        try:
+            loc = _locator_first(el.locator(selector))
+            count = loc.count()
+            if isinstance(count, int) and count <= 0:
+                continue
+            label = loc.inner_text(timeout=900).strip()
+            if label:
+                result = parse_relative_date(label)
+                if result is not None:
+                    return result
+        except Exception:
+            continue
+
+    # Strategy 4: bare <time> fallback
+    try:
+        any_time = _locator_first(el.locator("time"))
+        any_count = any_time.count()
+        if (not isinstance(any_count, int)) or any_count > 0:
+            label = any_time.inner_text(timeout=900).strip()
+            return parse_relative_date(label)
+    except Exception:
+        pass
+
+    return None
 
 
 def _extract_job_url(el) -> str:
@@ -292,23 +355,7 @@ def scroll_loop(page, limit: int, lookback_days: int) -> Generator[JobCard, None
             new_this_scroll += 1
 
             # Parse posted_at from card (avoid unnecessary detail page visit)
-            posted_time_el = _locator_first(el.locator("time[datetime]"))
-            posted_count = posted_time_el.count()
-            if (isinstance(posted_count, int) and posted_count > 0) or not isinstance(posted_count, int):
-                if isinstance(posted_count, int) and posted_count <= 0:
-                    datetime_attr = None
-                else:
-                    datetime_attr = posted_time_el.get_attribute("datetime")
-            else:
-                datetime_attr = None
-
-            posted_at = parse_iso(datetime_attr)
-
-            if posted_at is None:
-                any_time = _locator_first(el.locator("time"))
-                any_count = any_time.count()
-                label = any_time.inner_text(timeout=900) if (not isinstance(any_count, int)) or any_count > 0 else ""
-                posted_at = parse_relative_date(label)
+            posted_at = _extract_posted_at(el)
 
             # Lookback cutoff check
             if posted_at and posted_at < cutoff_date:
@@ -360,9 +407,9 @@ def scroll_loop(page, limit: int, lookback_days: int) -> Generator[JobCard, None
         if all_too_old and new_this_scroll > 0:
             return
 
-        # Scroll down to trigger lazy-load
-        page.evaluate("window.scrollBy(0, window.innerHeight * 2)")
-        page.wait_for_timeout(1_500)
+        # Scroll to absolute bottom to trigger lazy-load of next batch
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        page.wait_for_timeout(2_000)
 
 
 # ---------------------------------------------------------------------------

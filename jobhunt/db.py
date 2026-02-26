@@ -8,6 +8,7 @@ FR-29/30: set_job_status() and append_job_note() for Phase 2a status pipeline.
 
 from __future__ import annotations
 
+import difflib
 import json
 import sqlite3
 import sys
@@ -188,27 +189,37 @@ def upsert_job(
     try:
         # Branch A: look up by (platform, platform_id)
         row = conn.execute(
-            "SELECT id, jd_hash FROM jobs WHERE platform = ? AND platform_id = ?",
+            "SELECT id, jd_hash, jd_text FROM jobs WHERE platform = ? AND platform_id = ?",
             (card.platform, card.platform_id),
         ).fetchone()
 
         if row is not None:
             existing_id, existing_hash = row["id"], row["jd_hash"]
+            existing_jd_text = row["jd_text"] or ""
 
             if existing_hash == jd_hash:
                 # A1: unchanged — skip
                 return "skipped", False
-            else:
-                # A2: JD changed — update in place
-                if not dry_run:
-                    conn.execute(
-                        """UPDATE jobs
-                           SET jd_text = ?, jd_hash = ?, updated_at = ?
-                           WHERE id = ?""",
-                        (jd_text, jd_hash, utcnow_iso(), existing_id),
-                    )
-                    conn.commit()
-                return "updated", False
+
+            # A2: hash differs — check actual text similarity to avoid
+            # false positives from minor rendering differences (Bug #7)
+            similarity = difflib.SequenceMatcher(
+                None, existing_jd_text, jd_text
+            ).ratio()
+            if similarity >= 0.95:
+                # Near-identical text — treat as no meaningful change
+                return "skipped", False
+
+            # Genuine JD change — update in place
+            if not dry_run:
+                conn.execute(
+                    """UPDATE jobs
+                       SET jd_text = ?, jd_hash = ?, updated_at = ?
+                       WHERE id = ?""",
+                    (jd_text, jd_hash, utcnow_iso(), existing_id),
+                )
+                conn.commit()
+            return "updated", False
 
         # Branch B: not found — check for jd_hash collision (FR-09)
         collision = conn.execute(
