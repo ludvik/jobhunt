@@ -15,8 +15,20 @@ uv sync
 echo "==> Installing Playwright Chromium..."
 uv run playwright install chromium
 
-echo "==> Creating data directory..."
+echo "==> Creating data directories..."
 mkdir -p "${DATA_DIR}/session"
+mkdir -p "${DATA_DIR}/resumes"
+mkdir -p "${DATA_DIR}/prompts"
+
+echo "==> Installing default prompt templates..."
+for f in classify.md tailor.md analyze.md; do
+    if [ ! -f "${DATA_DIR}/prompts/${f}" ]; then
+        cp "${SCRIPT_DIR}/prompts/${f}" "${DATA_DIR}/prompts/${f}"
+        echo "    ${f} → ${DATA_DIR}/prompts/${f}"
+    else
+        echo "    ${f} already exists, skipping"
+    fi
+done
 
 echo "==> Installing SKILL.md..."
 mkdir -p "${SKILLS_DIR}"

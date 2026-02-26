@@ -2,12 +2,14 @@
 
 ## What this tool does
 
-`jobhunt` is a macOS CLI tool that automates LinkedIn job discovery and local tracking for a single job seeker. It:
+`jobhunt` is a macOS CLI tool that automates LinkedIn job discovery, resume tailoring, and application tracking for a single job seeker. It:
 
-1. Authenticates with LinkedIn via 1Password CLI auto-login (or a headed manual browser fallback).
+1. Authenticates with LinkedIn via macOS Keychain auto-login (or a headed manual browser fallback).
 2. Scrapes LinkedIn's recommended jobs feed using Playwright (headless Chromium).
 3. Stores unique job postings in a local SQLite database.
-4. Provides `list` and `show` commands to review tracked jobs.
+4. Generates JD-tailored resumes via OpenAI, with automatic base direction classification.
+5. Tracks jobs through a status pipeline: `new → tailored → blocked/apply_failed/applied`.
+6. Provides `list`, `show`, `status`, and `tailor` commands to manage tracked jobs.
 
 All data lives locally at `~/.openclaw/data/jobhunt/`.
 
@@ -20,17 +22,17 @@ cd ~/code/openclaw-tools/jobhunt
 bash install.sh
 ```
 
-This installs dependencies, Chromium, and the `jobhunt` CLI into your shell.
+This installs dependencies, Chromium, default prompt templates, and the `jobhunt` CLI into your shell.
 
 ---
 
 ## Prerequisites
 
 - Python 3.11+ (managed by `uv`)
-- 1Password CLI (`op` ≥ 2.0) — optional; required for automatic login
-  - Install: https://developer.1password.com/docs/cli/get-started/
-  - Must be signed in: `op signin`
+- macOS Keychain credentials for LinkedIn and OpenAI (stored via `security` CLI)
+- 1Password CLI (`op` >= 2.0) — optional fallback for credential resolution
 - An active LinkedIn account
+- For PDF generation: `pandoc` and `xelatex` in PATH
 
 ---
 
@@ -48,6 +50,12 @@ jobhunt list
 
 # 4. Show full details for a specific job
 jobhunt show 42
+
+# 5. Tailor a resume for a job
+jobhunt tailor 42
+
+# 6. Update job status
+jobhunt status 42 --set applied --note "Applied via LinkedIn Easy Apply"
 ```
 
 ---
@@ -58,8 +66,8 @@ jobhunt show 42
 
 Authenticate with LinkedIn and save the session.
 
-- Resolves credentials from 1Password automatically (domain-based lookup).
-- Falls back to a headed browser window for manual login if `op` is unavailable.
+- Resolves credentials from macOS Keychain automatically (primary).
+- Falls back to 1Password CLI, then to a headed browser window for manual login.
 - Session saved to `~/.openclaw/data/jobhunt/session/linkedin.json` at mode `0600`.
 
 ```bash
@@ -119,18 +127,17 @@ Query and display tracked jobs.
 ```bash
 jobhunt list                              # all jobs, default sort
 jobhunt list --status new                 # filter by status
-jobhunt list --status new,tailoring       # multiple statuses
+jobhunt list --status blocked,apply_failed # multiple statuses (OR)
 jobhunt list --company stripe             # company substring match
 jobhunt list --title engineer             # title substring match
 jobhunt list --since 2026-02-01           # fetched on or after date
 jobhunt list --sort -posted_at --limit 20 # sort by posted date desc
 jobhunt list --json                       # JSON output (excludes jd_text)
-jobhunt list --json | jq '.[].title'      # pipe to jq
 ```
 
 **Columns:** `id | status | title | company | location | posted_at | fetched_at`
 
-**Valid `--status` values:** `new`, `skip`, `tailoring`, `applied`, `rejected`
+**Valid `--status` values:** `new`, `skipped`, `tailored`, `blocked`, `apply_failed`, `applied`
 
 ---
 
@@ -146,11 +153,72 @@ Exits with code `1` if the ID does not exist.
 
 ---
 
+### `jobhunt tailor <job_id>`
+
+Generate a tailored resume for a tracked job using OpenAI.
+
+```bash
+jobhunt tailor 42                          # auto-classify base direction
+jobhunt tailor 42 --base mgmt             # force management base resume
+jobhunt tailor 42 --dry-run               # print to stdout, no file writes
+jobhunt tailor 42 --skip-analyze          # skip match analysis step
+jobhunt tailor 42 --tailor-prompt /tmp/t.md  # use custom tailor prompt
+```
+
+**What it does:**
+1. Validates the job exists and has a non-empty JD.
+2. Classifies the JD into a base direction (`ai`, `ic`, `mgmt`, `venture`) unless `--base` is provided.
+3. Loads the corresponding base resume from `resume-factory/src/`.
+4. Calls OpenAI to rewrite the resume for the specific JD.
+5. Writes `tailored.md`, `meta.json`, and optionally `analysis.md` to `~/.openclaw/data/jobhunt/resumes/<job_id>/`.
+6. Attempts PDF generation via `resume-factory` (best-effort).
+7. Auto-transitions job status from `new` to `tailored`.
+
+**Flags:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--base` | auto | Force base direction: `ai`, `ic`, `mgmt`, or `venture` |
+| `--dry-run` | off | Print markdown to stdout; no files, no status change |
+| `--skip-analyze` | off | Skip match analysis (no `analysis.md`) |
+| `--tailor-prompt` | — | Override tailor prompt file |
+| `--classify-prompt` | — | Override classify prompt file |
+| `--analyze-prompt` | — | Override analyze prompt file |
+
+**Exit codes:**
+- `0` — success (including tolerated PDF/analysis failures)
+- `1` — validation error, missing key, missing prompt, or LLM failure
+
+---
+
+### `jobhunt status <job_id> --set <status>`
+
+Set job status and optionally attach a note.
+
+```bash
+jobhunt status 42 --set blocked --note "Waiting for recruiter response"
+jobhunt status 42 --set applied
+```
+
+**Allowed transitions:**
+- `new → skipped`
+- `new → tailored`
+- `tailored → blocked`
+- `tailored → apply_failed`
+- `tailored → applied`
+- `blocked → tailored`
+- `blocked → applied`
+- `apply_failed → applied`
+
+Invalid transitions exit with code `1`.
+
+---
+
 ## Data Model
 
 All data is stored in `~/.openclaw/data/jobhunt/jobhunt.db` (SQLite).
 
-Key fields:
+### `jobs` table
 
 | Field | Description |
 |-------|-------------|
@@ -161,27 +229,49 @@ Key fields:
 | `location` | Location string |
 | `posted_at` | ISO-8601 date posted |
 | `fetched_at` | ISO-8601 UTC timestamp when first ingested |
-| `updated_at` | ISO-8601 UTC timestamp of last JD update (NULL if never updated) |
+| `updated_at` | ISO-8601 UTC timestamp of last JD update |
+| `status_updated_at` | ISO-8601 UTC timestamp of last status change |
 | `jd_text` | Full plain-text job description |
 | `jd_hash` | MD5 of normalised JD (for change detection) |
-| `status` | Workflow status: `new` / `skip` / `tailoring` / `applied` / `rejected` |
+| `status` | `new` / `skipped` / `tailored` / `blocked` / `apply_failed` / `applied` |
 
-To manually update a job's status, edit the SQLite database directly:
-```bash
-sqlite3 ~/.openclaw/data/jobhunt/jobhunt.db \
-  "UPDATE jobs SET status='tailoring' WHERE id=42;"
-```
+### `job_notes` table
+
+| Field | Description |
+|-------|-------------|
+| `id` | Auto-increment key |
+| `job_id` | FK to `jobs.id` |
+| `created_at` | ISO-8601 UTC timestamp |
+| `status_after` | Status at time of note |
+| `content` | Note text |
+| `source` | Origin (`cli` by default) |
 
 ---
 
-## Deduplication
+## Resume Artifacts
 
-Two-layer dedup strategy:
+Generated per-job in `~/.openclaw/data/jobhunt/resumes/<job_id>/`:
 
-1. **Platform ID (DB-level):** `UNIQUE(platform, platform_id)` constraint prevents duplicate listings.
-2. **JD hash (application-level):** If the same `platform_id` is scraped again with a different `jd_hash`, the JD is updated in-place (the company edited the description).
+| File | Description |
+|------|-------------|
+| `tailored.md` | LLM-generated tailored resume (Markdown) |
+| `meta.json` | Metadata: base, model, prompt version, timestamps |
+| `analysis.md` | Match analysis (score, strengths, gaps, interview tips) |
+| `resume.pdf` | PDF output from resume-factory (best-effort) |
 
-Possible reposts (same JD on a different listing ID) are logged as warnings but inserted normally so you see them.
+---
+
+## Prompt Templates
+
+Editable templates in `~/.openclaw/data/jobhunt/prompts/`:
+
+| File | Purpose |
+|------|---------|
+| `classify.md` | JD → base direction classification |
+| `tailor.md` | Base resume → tailored resume rewrite |
+| `analyze.md` | JD + resume → structured match analysis |
+
+Templates use `{{variable}}` placeholders.
 
 ---
 
@@ -189,11 +279,11 @@ Possible reposts (same JD on a different listing ID) are logged as warnings but 
 
 | Problem | Solution |
 |---------|----------|
-| `op CLI not found` | Install 1Password CLI or use manual login |
+| `op CLI not found` | Install 1Password CLI or use macOS Keychain |
+| `OpenAI API key not found` | Store key: `security add-generic-password -a jobhunt -s openai -w <key>` |
 | Session expired mid-fetch | Run `jobhunt auth` again |
 | LinkedIn DOM changed | Open a GitHub issue; selectors may need updating |
-| CAPTCHA / security checkpoint | Run `jobhunt auth` in a headed browser (automatic fallback) |
-| All jobs erroring | Check network, re-run `jobhunt auth` |
+| PDF generation failed | Install `pandoc` and `xelatex`; `tailored.md` is still retained |
 
 ---
 
@@ -204,3 +294,5 @@ Possible reposts (same JD on a different listing ID) are logged as warnings but 
 | `~/.openclaw/data/jobhunt/jobhunt.db` | SQLite database |
 | `~/.openclaw/data/jobhunt/config.json` | User configuration |
 | `~/.openclaw/data/jobhunt/session/linkedin.json` | Playwright session (0600) |
+| `~/.openclaw/data/jobhunt/prompts/` | Editable prompt templates |
+| `~/.openclaw/data/jobhunt/resumes/<id>/` | Per-job tailored resume artifacts |
