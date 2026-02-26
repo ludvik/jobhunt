@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# install.sh — set up the jobhunt tool
+# Usage: bash install.sh
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DATA_DIR="${HOME}/.openclaw/data/jobhunt"
+SKILLS_DIR="${HOME}/.openclaw/skills/jobhunt"
+
+echo "==> Installing jobhunt dependencies..."
+cd "${SCRIPT_DIR}"
+uv sync
+
+echo "==> Installing Playwright Chromium..."
+uv run playwright install chromium
+
+echo "==> Creating data directory..."
+mkdir -p "${DATA_DIR}/session"
+
+echo "==> Installing SKILL.md..."
+mkdir -p "${SKILLS_DIR}"
+cp "${SCRIPT_DIR}/SKILL.md" "${SKILLS_DIR}/SKILL.md"
+echo "    SKILL.md → ${SKILLS_DIR}/SKILL.md"
+
+echo ""
+echo "✓ jobhunt installed."
+echo ""
+echo "  Run:  uv run jobhunt --help"
+echo "  Auth: uv run jobhunt auth"
+echo "  Tip:  Add 'alias jobhunt=\"uv run jobhunt\"' to your shell profile."

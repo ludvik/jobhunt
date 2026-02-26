@@ -62,6 +62,54 @@ Full specs in:
 
 **Read both before writing any code.** The system-design.md has exact pseudocode/algorithms for all key modules.
 
+## ⚠️ CREDENTIAL RESOLUTION CHANGE (supersedes system-design.md §4.1 and §6)
+
+Credentials are stored in **macOS Keychain**, NOT in 1Password and NOT in plaintext files.
+
+### Reading credentials (macOS Keychain via `security` CLI):
+
+```python
+import subprocess, json
+
+def read_keychain(service: str) -> dict | str | None:
+    """Read a secret from macOS Keychain. Returns silently None if not found."""
+    result = subprocess.run(
+        ["security", "find-generic-password", "-a", "jobhunt", "-s", service, "-w"],
+        capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        return None
+    value = result.stdout.strip()
+    try:
+        return json.loads(value)   # returns dict for linkedin (username+password)
+    except json.JSONDecodeError:
+        return value               # returns string for anthropic key etc.
+```
+
+### Stored entries (already populated):
+- `service="linkedin"` → JSON `{"username": "...", "password": "..."}` 
+- `service="anthropic"` → string (API key, for dev tooling only, not jobhunt runtime)
+
+### New credential resolution order in `credentials.py`:
+
+1. **macOS Keychain (primary)** — `security find-generic-password -a jobhunt -s <service>`
+   - For LinkedIn: service = `"linkedin"`
+   - Silent, headless, no prompts (works as long as user is logged in)
+
+2. **1Password CLI (fallback)** — only if Keychain lookup fails AND `op` available without interactive auth
+
+3. **Manual browser login (last resort)** — headed Playwright window
+
+### Anthropic API key:
+- Retrieved via `read_keychain("anthropic")` 
+- Used ONLY for spawning Claude Code (dev tooling) — NOT used by jobhunt at runtime
+
+### Never store credentials in:
+- Plaintext files
+- config.json
+- Environment variables in shell profiles
+- Git repo
+
 ## Coding Standards
 
 - Follow module structure exactly as specified in system-design.md §2 and §9
