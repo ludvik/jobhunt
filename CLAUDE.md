@@ -62,6 +62,38 @@ Full specs in:
 
 **Read both before writing any code.** The system-design.md has exact pseudocode/algorithms for all key modules.
 
+## ⚠️ CREDENTIAL RESOLUTION CHANGE (supersedes system-design.md §4.1 and §6)
+
+The credential resolution strategy has changed. **Do NOT use 1Password as primary**. Use local secrets files instead:
+
+### New credential resolution order for ALL sources:
+
+1. **Local secrets file (primary)** — `~/.openclaw/secrets/<source>.json`
+   - Format: `{"username": "...", "password": "..."}`
+   - File must exist with chmod 600
+   - For LinkedIn: `~/.openclaw/secrets/linkedin.json` ← already created
+   
+2. **1Password CLI (fallback)** — only if local file not found AND `op` is available without interactive prompt
+   - Same domain-based lookup as before
+   - If `op` requires interactive auth → skip, go to fallback
+
+3. **Manual browser login (last resort)** — headed Playwright window
+
+### Anthropic API key (for dev tooling, not jobhunt runtime):
+- Stored at `~/.openclaw/secrets/anthropic.key` ← already created
+- NOT used by jobhunt at runtime; this is for Claude Code itself
+
+### credentials.py changes:
+- `resolve_credential(domain)` → first try `~/.openclaw/secrets/{domain_slug}.json`
+  - domain_slug: `linkedin.com` → `linkedin`
+- Only fall back to `op item list` if local file not found
+- `config.json` no longer needs `op_domain` to be meaningful for credential lookup (keep it for fetch_url)
+
+### secrets directory:
+- Path: `~/.openclaw/secrets/` (already exists, chmod 700)
+- `linkedin.json` — already populated
+- Never commit this directory to git (add to .gitignore)
+
 ## Coding Standards
 
 - Follow module structure exactly as specified in system-design.md §2 and §9
