@@ -1,0 +1,28 @@
+[project]
+name = "jobhunt"
+version = "0.1.0"
+description = "CLI tool for automated LinkedIn job discovery and local tracking"
+requires-python = ">=3.11"
+readme = "README.md"
+dependencies = [
+    "click>=8.1",
+    "playwright>=1.40",
+    "rich>=13.0",
+]
+
+[project.scripts]
+jobhunt = "jobhunt.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.0",
+    "pytest-mock>=3.12",
+    "pytest-asyncio>=0.23",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
