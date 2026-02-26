@@ -4,6 +4,26 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
+
+
+# ---------------------------------------------------------------------------
+# Enums
+# ---------------------------------------------------------------------------
+
+
+class JobStatus(str, Enum):
+    NEW = "new"
+    SKIPPED = "skipped"
+    TAILORED = "tailored"
+    BLOCKED = "blocked"
+    APPLY_FAILED = "apply_failed"
+    APPLIED = "applied"
+
+
+# ---------------------------------------------------------------------------
+# Dataclasses
+# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -41,6 +61,40 @@ class JobRecord:
     status: str
     fetched_at: str
     updated_at: str | None
+
+
+@dataclass
+class JobNote:
+    """A note attached to a job status transition."""
+    job_id: int
+    created_at: str
+    status_after: str
+    content: str
+    source: str = "cli"
+    id: int | None = None
+
+
+@dataclass
+class TailorMeta:
+    """Metadata recorded alongside a tailored resume artifact."""
+    job_id: int
+    base: str
+    model: str
+    created_at_utc: str
+    tailor_prompt_version: str
+    resume_factory_cmd: str
+
+
+@dataclass
+class TailorResult:
+    """Return value from run_tailor workflow."""
+    success: bool
+    tailored_md: str = ""
+    base: str = ""
+    pdf_ok: bool = False
+    analysis_ok: bool = False
+    dry_run: bool = False
+    error: str = ""
 
 
 @dataclass
