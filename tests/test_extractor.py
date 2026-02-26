@@ -219,3 +219,146 @@ class TestExtractJd:
         assert "<" not in result
         assert ">" not in result
         assert "great" in result
+
+    def test_uses_found_container_locator_when_requerying_selectors_fails(self):
+        from playwright.sync_api import TimeoutError as PwTimeout
+
+        page = MagicMock()
+        page.url = "https://www.linkedin.com/jobs/view/123/"
+
+        # _find_jd_container may locate a container from .description__text,
+        # but repeated locator() re-query can temporarily return empty for the same
+        # selector during extraction.
+        container = MagicMock()
+        container.count.return_value = 1
+        container.inner_html.return_value = "<p>Recovered from resolved locator</p>"
+
+        def mock_wait_for_selector(selector, timeout=None):
+            if selector == ".description__text":
+                return MagicMock()
+            raise PwTimeout(f"Timeout waiting for {selector}")
+
+        page.wait_for_selector.side_effect = mock_wait_for_selector
+
+        call_state = {"description": 0}
+
+        def mock_locator(selector):
+            # First query for primary selector returns the valid container,
+            # subsequent queries return empty to force fallback logic to rely on
+            # the already-resolved locator.
+            if selector == ".description__text":
+                call_state["description"] += 1
+                if call_state["description"] == 1:
+                    return container
+                m = MagicMock()
+                m.count.return_value = 0
+                m.inner_html.return_value = ""
+                return m
+            # fallback paths used by extract/jd fallbacks should be empty.
+            if selector == "button.show-more-less-html__button--more":
+                return MagicMock(is_visible=MagicMock(return_value=False), count=MagicMock(return_value=1))
+            if selector == "div[role='main']":
+                return MagicMock(count=MagicMock(return_value=0))
+            m = MagicMock()
+            m.count.return_value = 0
+            m.inner_html.return_value = ""
+            m.inner_text.return_value = ""
+            return m
+
+        page.locator.side_effect = mock_locator
+        page.query_selector_all = MagicMock(return_value=[])
+        page.wait_for_timeout = MagicMock()
+
+        result = extract_jd(page)
+        assert "Recovered from resolved locator" in result
+
+    def test_jsonld_fallback_extracts_description(self):
+        """When all DOM selectors fail, JSON-LD JobPosting description is used."""
+        from playwright.sync_api import TimeoutError as PwTimeout
+        import json
+
+        page = MagicMock()
+        page.url = "https://www.linkedin.com/jobs/view/456/"
+
+        # All wait_for_selector calls fail — no DOM container found.
+        page.wait_for_selector.side_effect = PwTimeout("Timeout")
+
+        # Show-more button not found.
+        def mock_locator(selector):
+            m = MagicMock()
+            m.count.return_value = 0
+            m.inner_html.return_value = ""
+            m.inner_text.return_value = ""
+            return m
+
+        page.locator.side_effect = mock_locator
+        page.wait_for_timeout = MagicMock()
+
+        # JSON-LD script with JobPosting description.
+        ld_json = json.dumps({
+            "@context": "https://schema.org",
+            "@type": "JobPosting",
+            "title": "Software Engineer",
+            "description": "<p>We are looking for a <b>Software Engineer</b> with experience in Python.</p>",
+        })
+        script_el = MagicMock()
+        script_el.inner_text.return_value = ld_json
+        page.query_selector_all = MagicMock(return_value=[script_el])
+
+        result = extract_jd(page)
+        assert "Software Engineer" in result
+        assert "Python" in result
+        assert "<" not in result  # HTML stripped
+
+    def test_broad_section_fallback_with_keyword_scoring(self):
+        """When DOM and JSON-LD fail, broad sections with JD keywords are used."""
+        from playwright.sync_api import TimeoutError as PwTimeout
+
+        page = MagicMock()
+        page.url = "https://www.linkedin.com/jobs/view/789/"
+
+        # All wait_for_selector calls fail.
+        page.wait_for_selector.side_effect = PwTimeout("Timeout")
+
+        # JSON-LD returns nothing.
+        page.query_selector_all = MagicMock(return_value=[])
+        page.wait_for_timeout = MagicMock()
+
+        # Build long text with JD keywords (>300 chars required).
+        jd_text = (
+            "About the role\n"
+            "We are looking for a Senior Engineer to join our team. "
+            "Responsibilities include designing systems, writing code, "
+            "and mentoring junior engineers. "
+            "Qualifications: 5+ years of experience in backend development, "
+            "strong knowledge of Python and distributed systems. "
+            "We are a fast-growing startup focused on developer tools. "
+            "This role offers competitive compensation and remote flexibility. "
+            "Apply now to join our growing engineering team."
+        )
+
+        short_text = "Not a JD"
+
+        def mock_locator(selector):
+            m = MagicMock()
+            # "main" selector returns a long text with JD keywords
+            if selector == "main":
+                m.count.return_value = 1
+                m.inner_text.return_value = jd_text
+                m.inner_html.return_value = ""
+            elif selector == "article":
+                m.count.return_value = 1
+                m.inner_text.return_value = short_text
+                m.inner_html.return_value = ""
+            else:
+                m.count.return_value = 0
+                m.inner_html.return_value = ""
+                m.inner_text.return_value = ""
+            return m
+
+        page.locator.side_effect = mock_locator
+
+        result = extract_jd(page)
+        assert "Responsibilities" in result
+        assert "Qualifications" in result
+        assert len(result) > 300
