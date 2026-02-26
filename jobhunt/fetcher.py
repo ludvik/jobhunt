@@ -30,9 +30,125 @@ from jobhunt.utils import log_error, log_info, log_warn, parse_iso, parse_relati
 
 _JOB_CARD_SELECTOR = ".job-search-card"
 _JOB_ID_PATTERN = re.compile(r"jobPosting:(\d+)")
-_JOB_CARD_FALLBACKS = ["li[data-occludable-job-id]", "div.job-card-container"]
+_JOB_CARD_FALLBACKS = [
+    "li[data-occludable-job-id]",
+    "div.job-card-container",
+    "li.jobs-search-results__list-item",
+    "li.scaffold-layout__list-item",
+    "li[data-view-name='search-entity-result']",
+]
 
 _MAX_EMPTY_SCROLLS = 5  # consecutive empty scrolls before assuming end-of-feed
+
+# Card field selector candidates (for logged-in recommended feed compatibility)
+_JOB_TITLE_SELECTORS = [
+    ".base-search-card__title",
+    "h3",
+    "h4",
+    "a[data-control-name='job_card_click']",
+    "a[href*='/jobs/view/']",
+]
+
+_JOB_COMPANY_SELECTORS = [
+    ".base-search-card__subtitle",
+    "p[data-test-job-card-container-subtitle]",
+    ".job-card-container__company-name",
+]
+
+_JOB_LOCATION_SELECTORS = [
+    ".job-search-card__location",
+    ".job-card-container__metadata-item",
+    ".job-card-container__metadata-wrapper",
+]
+
+
+# ---------------------------------------------------------------------------
+# utility helpers for resilient extraction
+# ---------------------------------------------------------------------------
+
+def _locator_first(locator):
+    """Return `.first` if it exists, else the locator itself."""
+    return getattr(locator, "first", locator)
+
+
+def _first_text(el, selectors: list[str], *, timeout_ms: int = 900) -> str:
+    for selector in selectors:
+        try:
+            locator = _locator_first(el.locator(selector))
+            count = locator.count()
+            if isinstance(count, int) and count <= 0:
+                continue
+            return locator.inner_text(timeout=timeout_ms).strip()
+        except Exception:
+            continue
+    return ""
+
+
+def _first_attr(el, selectors: list[str], attr: str) -> str:
+    for selector in selectors:
+        try:
+            locator = _locator_first(el.locator(selector))
+            count = locator.count()
+            if isinstance(count, int) and count <= 0:
+                continue
+            value = locator.get_attribute(attr)
+            if value:
+                return value.strip()
+        except Exception:
+            continue
+    return ""
+
+
+def _extract_platform_id(el) -> str:
+    """Extract LinkedIn platform_id from a card element."""
+    entity_urn = el.get_attribute("data-entity-urn") or ""
+    match = _JOB_ID_PATTERN.search(entity_urn)
+    if match:
+        return match.group(1)
+    legacy_id = (el.get_attribute("data-occludable-job-id") or "").strip()
+    if legacy_id:
+        # some LinkedIn payloads expose the numeric id directly
+        if legacy_id.isdigit():
+            return legacy_id
+    return ""
+
+
+def _extract_job_url(el) -> str:
+    for selector in [
+        "a.base-card__full-link",
+        "a[href*='/jobs/view/']",
+        "a[data-control-name='job_card_click']",
+    ]:
+        url = _first_attr(el, [selector], "href")
+        if url:
+            return f"https://www.linkedin.com{url}" if url.startswith("/") else url
+    return ""
+
+
+def _iter_job_cards(page):
+    """Return all job card elements using the preferred selector chain."""
+    selectors = [_JOB_CARD_SELECTOR, *_JOB_CARD_FALLBACKS]
+
+    for selector in selectors:
+        locator = page.locator(selector)
+
+        # Playwright Locator.count() returns int; in tests it's mocked.
+        try:
+            count = locator.count()
+            if isinstance(count, int) and count > 0:
+                return locator.all()
+        except Exception:
+            pass
+
+        try:
+            elements = locator.all()
+            if elements:
+                return elements
+        except Exception:
+            continue
+
+    return []
+
 
 # ---------------------------------------------------------------------------
 # Public entry point
@@ -156,74 +272,68 @@ def scroll_loop(page, limit: int, lookback_days: int) -> Generator[JobCard, None
 
     while cards_yielded < limit:
         # Collect all currently visible job card elements
-        card_elements = page.locator(_JOB_CARD_SELECTOR).all()
+        card_elements = _iter_job_cards(page)
 
-        # Fallback selectors if primary yields nothing
         if not card_elements:
-            for fallback in _JOB_CARD_FALLBACKS:
-                card_elements = page.locator(fallback).all()
-                if card_elements:
-                    break
-            if not card_elements:
-                log_error(
-                    "LinkedIn DOM structure has changed — no job cards found. "
-                    "Please open a GitHub issue."
-                )
-                return
+            log_error(
+                "LinkedIn DOM structure has changed — no job cards found. "
+                "Please open a GitHub issue."
+            )
+            return
 
         new_this_scroll = 0
         all_too_old = True
 
         for el in card_elements:
-            # Extract platform_id from data-entity-urn
-            entity_urn = el.get_attribute("data-entity-urn") or ""
-            m = _JOB_ID_PATTERN.search(entity_urn)
-            if not m:
-                # Try data-occludable-job-id fallback
-                job_id_attr = el.get_attribute("data-occludable-job-id") or ""
-                if not job_id_attr:
-                    continue
-                platform_id = job_id_attr.strip()
-            else:
-                platform_id = m.group(1)
-
-            if platform_id in seen_ids:
+            platform_id = _extract_platform_id(el)
+            if not platform_id or platform_id in seen_ids:
                 continue
             seen_ids.add(platform_id)
             new_this_scroll += 1
 
             # Parse posted_at from card (avoid unnecessary detail page visit)
-            time_el = el.locator("time[datetime]").first
-            if time_el.count() > 0:
-                datetime_attr = time_el.get_attribute("datetime")
-                posted_at = parse_iso(datetime_attr)
+            posted_time_el = _locator_first(el.locator("time[datetime]"))
+            posted_count = posted_time_el.count()
+            if (isinstance(posted_count, int) and posted_count > 0) or not isinstance(posted_count, int):
+                if isinstance(posted_count, int) and posted_count <= 0:
+                    datetime_attr = None
+                else:
+                    datetime_attr = posted_time_el.get_attribute("datetime")
             else:
-                any_time = el.locator("time").first
-                label = any_time.inner_text() if any_time.count() > 0 else ""
+                datetime_attr = None
+
+            posted_at = parse_iso(datetime_attr)
+
+            if posted_at is None:
+                any_time = _locator_first(el.locator("time"))
+                any_count = any_time.count()
+                label = any_time.inner_text(timeout=900) if (not isinstance(any_count, int)) or any_count > 0 else ""
                 posted_at = parse_relative_date(label)
 
             # Lookback cutoff check
             if posted_at and posted_at < cutoff_date:
-                continue  # too old — skip but don't stop yet
+                continue
             else:
                 all_too_old = False
 
-            # Extract card fields (verified selectors §4.2)
-            try:
-                title = el.locator(".base-search-card__title").inner_text().strip()
-                company = el.locator(".base-search-card__subtitle").inner_text().strip()
-                location = el.locator(".job-search-card__location").inner_text().strip()
-                job_url = el.locator("a.base-card__full-link").get_attribute("href") or ""
-            except Exception as exc:
-                log_warn(f"Failed to extract card fields for {platform_id}: {exc}")
-                continue
+            title = _first_text(
+                el,
+                _JOB_TITLE_SELECTORS,
+            )
+            company = _first_text(
+                el,
+                _JOB_COMPANY_SELECTORS,
+            )
+            location = _first_text(
+                el,
+                _JOB_LOCATION_SELECTORS,
+            )
+            job_url = _extract_job_url(el)
 
             if not job_url:
                 continue
-            if job_url.startswith("/"):
-                job_url = f"https://www.linkedin.com{job_url}"
-
-            if not title or not company:
+            if not title:
+                log_warn(f"Failed to extract title for {platform_id}")
                 continue
 
             yield JobCard(
