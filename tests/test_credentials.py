@@ -13,6 +13,7 @@ from jobhunt.credentials import (
     op_available,
     op_list_items,
     rank_by_preferred_emails,
+    read_keychain,
     resolve_credential,
 )
 from jobhunt.models import Credential
@@ -177,15 +178,26 @@ class TestRankByPreferredEmails:
 
 
 class TestResolveCredential:
-    def test_returns_none_when_op_not_available(self, capsys):
-        with patch("jobhunt.credentials.op_available", return_value=False):
+    def test_uses_keychain_when_available(self):
+        with patch("jobhunt.credentials.read_keychain", return_value={"username": "u", "password": "p"}):
+            cred = resolve_credential("linkedin.com", [])
+        assert isinstance(cred, Credential)
+        assert cred.username == "u"
+        assert cred.password == "p"
+
+    def test_falls_back_to_1password_when_keychain_empty(self, capsys):
+        with (
+            patch("jobhunt.credentials.read_keychain", return_value=None),
+            patch("jobhunt.credentials.op_available", return_value=False),
+        ):
             result = resolve_credential("linkedin.com", [])
         assert result is None
         captured = capsys.readouterr()
-        assert "op CLI not found" in captured.err
+        assert "No credentials found" in captured.err
 
     def test_returns_none_when_op_list_fails(self, capsys):
         with (
+            patch("jobhunt.credentials.read_keychain", return_value=None),
             patch("jobhunt.credentials.op_available", return_value=True),
             patch("jobhunt.credentials.op_list_items", return_value=None),
         ):
@@ -195,13 +207,14 @@ class TestResolveCredential:
     def test_returns_none_when_no_matching_items(self, capsys, op_item_list_output):
         all_items = json.loads(op_item_list_output)
         with (
+            patch("jobhunt.credentials.read_keychain", return_value=None),
             patch("jobhunt.credentials.op_available", return_value=True),
             patch("jobhunt.credentials.op_list_items", return_value=all_items),
         ):
             result = resolve_credential("example.com", [])
         assert result is None
         captured = capsys.readouterr()
-        assert "No matching 1Password item" in captured.err
+        assert "No credentials found" in captured.err
 
     def test_returns_credential_on_success(self, op_item_list_output, preferred_emails):
         all_items = json.loads(op_item_list_output)
@@ -219,6 +232,7 @@ class TestResolveCredential:
             return None
 
         with (
+            patch("jobhunt.credentials.read_keychain", return_value=None),
             patch("jobhunt.credentials.op_available", return_value=True),
             patch("jobhunt.credentials.op_list_items", return_value=all_items),
             patch("jobhunt.credentials.op_get_item", side_effect=mock_op_get),
