@@ -98,16 +98,19 @@ def _needs_migration(conn: sqlite3.Connection) -> bool:
 
 
 def _has_old_schema(conn: sqlite3.Connection) -> bool:
-    """Check if the jobs table exists with the old CHECK constraint."""
+    """Return True if jobs table exists but is missing Phase 2a columns/constraints.
+
+    Detects the Phase 1 schema by checking for the absence of status_updated_at column.
+    Returns False if the jobs table doesn't exist yet (fresh install).
+    """
     cursor = conn.execute(
-        "SELECT sql FROM sqlite_master WHERE type='table' AND name='jobs'"
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='jobs'"
     )
-    row = cursor.fetchone()
-    if row is None:
-        return False
-    # Old schema has 'skip' or 'tailoring' or 'rejected' in the CHECK
-    sql = row[0] or ""
-    return "'skip'" in sql or "'tailoring'" in sql or "'rejected'" in sql
+    if cursor.fetchone() is None:
+        return False  # fresh DB — no migration needed
+    # Check if status_updated_at column already exists
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
+    return "status_updated_at" not in cols
 
 
 def migrate_db_schema(conn: sqlite3.Connection) -> None:
@@ -145,9 +148,11 @@ def init_db(db_path: str | Path) -> sqlite3.Connection:
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    # Run migration FIRST (upgrades existing schema to Phase 2a if needed)
+    # before executing DDL which references new columns/indexes.
+    migrate_db_schema(conn)
     conn.executescript(_DDL)
     conn.commit()
-    migrate_db_schema(conn)
     return conn
 
 
