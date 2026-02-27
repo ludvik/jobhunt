@@ -1,18 +1,20 @@
 """Click CLI: entry point and all subcommand definitions.
 
-Subcommands: auth | config | fetch | list | show
+Subcommands: auth | config | fetch | list | show | tailor | status
 """
 
 from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 
 import click
 from rich.console import Console
 from rich.table import Table
 
 from jobhunt import __version__
+from jobhunt.models import JobStatus
 from jobhunt.utils import truncate_str
 
 # ---------------------------------------------------------------------------
@@ -121,12 +123,14 @@ def cmd_fetch(limit: int, lookback: int, dry_run: bool, verbose: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
-# jobhunt list (FR-14, FR-15, FR-16)
+# jobhunt list (FR-14, FR-15, FR-16, FR-31)
 # ---------------------------------------------------------------------------
+
+_VALID_STATUSES = {s.value for s in JobStatus}
 
 
 @main.command("list")
-@click.option("--status", default=None, help="Filter by status (comma-separated).")
+@click.option("--status", default=None, help="Filter by status (comma-separated). Values: new,skipped,tailored,blocked,apply_failed,applied.")
 @click.option("--company", default=None, help="Case-insensitive company substring.")
 @click.option("--title", default=None, help="Case-insensitive title substring.")
 @click.option("--location", default=None, help="Case-insensitive location substring.")
@@ -152,6 +156,18 @@ def cmd_list(
     """List tracked jobs with optional filters."""
     from jobhunt import db as db_module
     from jobhunt.config import load_config
+
+    # Validate status tokens (FR-31)
+    if status:
+        tokens = [s.strip() for s in status.split(",") if s.strip()]
+        invalid = [t for t in tokens if t not in _VALID_STATUSES]
+        if invalid:
+            print(
+                f"Error: invalid status value(s): {', '.join(invalid)}. "
+                f"Valid: {', '.join(sorted(_VALID_STATUSES))}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
     load_config()  # ensure data dir exists
     conn = db_module.init_db(str(_db_path()))
@@ -204,6 +220,105 @@ def cmd_show(job_id: int) -> None:
 
 
 # ---------------------------------------------------------------------------
+# jobhunt tailor <job_id> (FR-21 — FR-28, FR-37)
+# ---------------------------------------------------------------------------
+
+
+@main.command("tailor")
+@click.argument("job_id", type=int)
+@click.option("--base", type=click.Choice(["ai", "ic", "mgmt", "venture"]), default=None,
+              help="Force base resume direction (skip auto-classification).")
+@click.option("--dry-run", is_flag=True, help="Print tailored markdown to stdout; no file writes or status changes.")
+@click.option("--skip-analyze", is_flag=True, help="Skip JD match analysis step.")
+@click.option("--tailor-prompt", type=click.Path(exists=True), default=None,
+              help="Override tailor prompt file path.")
+@click.option("--classify-prompt", type=click.Path(exists=True), default=None,
+              help="Override classify prompt file path.")
+@click.option("--analyze-prompt", type=click.Path(exists=True), default=None,
+              help="Override analyze prompt file path.")
+def cmd_tailor(
+    job_id: int,
+    base: str | None,
+    dry_run: bool,
+    skip_analyze: bool,
+    tailor_prompt: str | None,
+    classify_prompt: str | None,
+    analyze_prompt: str | None,
+) -> None:
+    """Generate a tailored resume for a tracked job."""
+    from jobhunt import db as db_module
+    from jobhunt.config import load_config
+    from jobhunt.tailor import run_tailor
+
+    config = load_config()
+    conn = db_module.init_db(str(_db_path()))
+
+    try:
+        result = run_tailor(
+            conn,
+            job_id,
+            base_override=base,
+            dry_run=dry_run,
+            skip_analyze=skip_analyze,
+            config=config,
+            classify_prompt_path=classify_prompt,
+            tailor_prompt_path=tailor_prompt,
+            analyze_prompt_path=analyze_prompt,
+        )
+        if not result.success:
+            print(f"Error: {result.error}", file=sys.stderr)
+            sys.exit(1)
+    except LookupError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    except FileNotFoundError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    except RuntimeError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# jobhunt status <job_id> --set <status> (FR-29, FR-30)
+# ---------------------------------------------------------------------------
+
+
+@main.command("status")
+@click.argument("job_id", type=int)
+@click.option(
+    "--set", "new_status", required=True,
+    type=click.Choice(["new", "skipped", "tailored", "blocked", "apply_failed", "applied"]),
+    help="New status to set.",
+)
+@click.option("--note", default=None, help="Optional note to attach to this status change.")
+def cmd_status(job_id: int, new_status: str, note: str | None) -> None:
+    """Set job status and optionally attach a note."""
+    from jobhunt import db as db_module
+    from jobhunt.config import load_config
+
+    load_config()
+    conn = db_module.init_db(str(_db_path()))
+
+    try:
+        db_module.set_job_status(conn, job_id, new_status, note=note)
+        print(f"Job {job_id} status set to '{new_status}'.")
+    except LookupError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
 # Render helpers
 # ---------------------------------------------------------------------------
 
@@ -242,17 +357,18 @@ def _render_json(rows: list[dict]) -> None:
 
 def _render_detail(job: dict) -> None:
     """Print all fields for a single job, including full jd_text (FR-17)."""
-    print(f"ID:         {job['id']}")
-    print(f"Status:     {job['status']}")
-    print(f"Title:      {job['title']}")
-    print(f"Company:    {job['company']}")
-    print(f"Location:   {job['location'] or '—'}")
-    print(f"Posted:     {job['posted_at'] or '—'}")
-    print(f"Fetched:    {job['fetched_at'] or '—'}")
-    print(f"Updated:    {job['updated_at'] or '—'}")
-    print(f"Platform:   {job['platform']}")
-    print(f"Job URL:    {job['job_url']}")
-    print(f"JD Hash:    {job['jd_hash']}")
+    print(f"ID:             {job['id']}")
+    print(f"Status:         {job['status']}")
+    print(f"Title:          {job['title']}")
+    print(f"Company:        {job['company']}")
+    print(f"Location:       {job['location'] or '—'}")
+    print(f"Posted:         {job['posted_at'] or '—'}")
+    print(f"Fetched:        {job['fetched_at'] or '—'}")
+    print(f"Updated:        {job['updated_at'] or '—'}")
+    print(f"Status Updated: {job.get('status_updated_at') or '—'}")
+    print(f"Platform:       {job['platform']}")
+    print(f"Job URL:        {job['job_url']}")
+    print(f"JD Hash:        {job['jd_hash']}")
     print()
     print("--- JD ---")
     print(job["jd_text"] or "(no description)")

@@ -19,6 +19,8 @@ SESSION_DIR: Path = DATA_DIR / "session"
 DB_PATH: Path = DATA_DIR / "jobhunt.db"
 SESSION_PATH: Path = SESSION_DIR / "linkedin.json"
 CONFIG_PATH: Path = DATA_DIR / "config.json"
+RESUMES_DIR: Path = DATA_DIR / "resumes"
+PROMPTS_DIR: Path = DATA_DIR / "prompts"
 
 # ---------------------------------------------------------------------------
 # Default config structure (auto-created on first run)
@@ -37,6 +39,13 @@ DEFAULT_CONFIG: dict = {
             "fetch_url": "https://www.linkedin.com/jobs/collections/recommended/",
         }
     },
+    "openai": {
+        "model": "gpt-4o",
+        "prompt_dir": "~/.openclaw/data/jobhunt/prompts",
+    },
+    "tailor": {
+        "resume_factory_path": "~/code/openclaw-tools/resume-factory",
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -48,12 +57,13 @@ def load_config() -> dict:
     """Load config.json, creating it with defaults if it doesn't exist.
 
     Exits with code 1 if the file exists but is malformed JSON.
+    Missing keys from DEFAULT_CONFIG are backfilled lazily.
     """
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     if not CONFIG_PATH.exists():
         save_config(_deep_copy(DEFAULT_CONFIG))
     try:
-        return json.loads(CONFIG_PATH.read_text())
+        config = json.loads(CONFIG_PATH.read_text())
     except json.JSONDecodeError as exc:
         print(
             f"[ERROR] Config file is malformed JSON: {exc}\n"
@@ -61,6 +71,17 @@ def load_config() -> dict:
             file=sys.stderr,
         )
         sys.exit(1)
+
+    # Backfill missing top-level keys from defaults
+    changed = False
+    for key, default_val in DEFAULT_CONFIG.items():
+        if key not in config:
+            config[key] = _deep_copy(default_val)
+            changed = True
+    if changed:
+        save_config(config)
+
+    return config
 
 
 def save_config(config: dict) -> None:
@@ -86,6 +107,25 @@ def prepend_preferred_email(config: dict, email: str) -> dict:
 def print_config(config: dict) -> None:
     """Print config dict as pretty-printed JSON to stdout."""
     print(json.dumps(config, indent=2))
+
+
+def get_openai_model(config: dict) -> str:
+    """Return the configured OpenAI model or default 'gpt-4o'."""
+    return config.get("openai", {}).get("model", "gpt-4o")
+
+
+def get_prompt_dir(config: dict) -> Path:
+    """Return the configured prompt directory as an expanded Path."""
+    raw = config.get("openai", {}).get("prompt_dir", str(PROMPTS_DIR))
+    return Path(raw).expanduser()
+
+
+def get_resume_factory_path(config: dict) -> Path:
+    """Return the configured resume-factory path as an expanded Path."""
+    raw = config.get("tailor", {}).get(
+        "resume_factory_path", "~/code/openclaw-tools/resume-factory"
+    )
+    return Path(raw).expanduser()
 
 
 # ---------------------------------------------------------------------------
