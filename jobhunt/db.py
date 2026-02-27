@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 from jobhunt.models import JobCard, JobNote, JobStatus
-from jobhunt.utils import log_error, utcnow_iso
+from jobhunt.utils import log_warn, log_error, utcnow_iso
 
 # ---------------------------------------------------------------------------
 # Schema (Phase 2a canonical)

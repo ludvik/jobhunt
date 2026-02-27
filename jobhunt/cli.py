@@ -220,68 +220,8 @@ def cmd_show(job_id: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# jobhunt tailor <job_id> (FR-21 — FR-28, FR-37)
+# jobhunt tailor — removed (LLM calls handled by agent layer, not CLI)
 # ---------------------------------------------------------------------------
-
-
-@main.command("tailor")
-@click.argument("job_id", type=int)
-@click.option("--base", type=click.Choice(["ai", "ic", "mgmt", "venture"]), default=None,
-              help="Force base resume direction (skip auto-classification).")
-@click.option("--dry-run", is_flag=True, help="Print tailored markdown to stdout; no file writes or status changes.")
-@click.option("--skip-analyze", is_flag=True, help="Skip JD match analysis step.")
-@click.option("--tailor-prompt", type=click.Path(exists=True), default=None,
-              help="Override tailor prompt file path.")
-@click.option("--classify-prompt", type=click.Path(exists=True), default=None,
-              help="Override classify prompt file path.")
-@click.option("--analyze-prompt", type=click.Path(exists=True), default=None,
-              help="Override analyze prompt file path.")
-def cmd_tailor(
-    job_id: int,
-    base: str | None,
-    dry_run: bool,
-    skip_analyze: bool,
-    tailor_prompt: str | None,
-    classify_prompt: str | None,
-    analyze_prompt: str | None,
-) -> None:
-    """Generate a tailored resume for a tracked job."""
-    from jobhunt import db as db_module
-    from jobhunt.config import load_config
-    from jobhunt.tailor import run_tailor
-
-    config = load_config()
-    conn = db_module.init_db(str(_db_path()))
-
-    try:
-        result = run_tailor(
-            conn,
-            job_id,
-            base_override=base,
-            dry_run=dry_run,
-            skip_analyze=skip_analyze,
-            config=config,
-            classify_prompt_path=classify_prompt,
-            tailor_prompt_path=tailor_prompt,
-            analyze_prompt_path=analyze_prompt,
-        )
-        if not result.success:
-            print(f"Error: {result.error}", file=sys.stderr)
-            sys.exit(1)
-    except LookupError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
-    except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
-    except FileNotFoundError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
-    except RuntimeError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
-    finally:
-        conn.close()
 
 
 # ---------------------------------------------------------------------------
