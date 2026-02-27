@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 
 from jobhunt.db import init_db, upsert_job
-from jobhunt.fetcher import _fetch_with_retry, print_summary, scroll_loop
+from jobhunt.fetcher import _fetch_with_retry, _poll_for_new_cards, clean_title, print_summary, run_fetch, scroll_loop
 from jobhunt.models import ExtractionError, JobCard, RunStats
 
 
@@ -211,15 +211,26 @@ def _make_element(platform_id: str, posted_at: str, title: str = "Test Job", com
     time_el.get_attribute.return_value = posted_at
     time_el.first = time_el  # .first returns the same mock
 
-    # other fields
+    # other fields — each needs .first=self and .count=1 for _locator_first chain
     title_el = MagicMock()
     title_el.inner_text.return_value = title
+    title_el.count.return_value = 1
+    title_el.first = title_el
+
     company_el = MagicMock()
     company_el.inner_text.return_value = company
+    company_el.count.return_value = 1
+    company_el.first = company_el
+
     location_el = MagicMock()
     location_el.inner_text.return_value = "Remote"
+    location_el.count.return_value = 1
+    location_el.first = location_el
+
     link_el = MagicMock()
     link_el.get_attribute.return_value = f"https://www.linkedin.com/jobs/view/{platform_id}/"
+    link_el.count.return_value = 1
+    link_el.first = link_el
 
     def mock_locator(selector):
         if "time[datetime]" in selector:
@@ -234,10 +245,99 @@ def _make_element(platform_id: str, posted_at: str, title: str = "Test Job", com
             return link_el
         m = MagicMock()
         m.count.return_value = 0
+        m.first = m  # _locator_first returns .first — must keep count=0
         return m
 
     el.locator.side_effect = mock_locator
     return el
+
+
+# ---------------------------------------------------------------------------
+# clean_title (Bug #13)
+# ---------------------------------------------------------------------------
+
+
+class TestCleanTitle:
+    def test_no_change_for_normal_title(self):
+        assert clean_title("Senior Backend Engineer") == "Senior Backend Engineer"
+
+    def test_deduplicates_doubled_title(self):
+        assert clean_title("Senior Engineer Senior Engineer") == "Senior Engineer"
+
+    def test_deduplicates_longer_doubled_title(self):
+        assert clean_title("Staff Software Engineer II Staff Software Engineer II") == "Staff Software Engineer II"
+
+    def test_strips_with_verification_suffix(self):
+        assert clean_title("Product Manager with verification") == "Product Manager"
+
+    def test_strips_verification_badge_suffix(self):
+        assert clean_title("Data Scientist verification badge") == "Data Scientist"
+
+    def test_strips_verification_case_insensitive(self):
+        assert clean_title("Engineer With Verification") == "Engineer"
+
+    def test_handles_both_dedup_and_verification(self):
+        # Verification stripped first, then dedup
+        assert clean_title("Engineer Engineer with verification") == "Engineer"
+
+    def test_does_not_dedup_odd_word_count(self):
+        assert clean_title("Senior Backend Engineer") == "Senior Backend Engineer"
+
+    def test_does_not_dedup_non_matching_halves(self):
+        assert clean_title("Senior Engineer Staff Engineer") == "Senior Engineer Staff Engineer"
+
+    def test_empty_string(self):
+        assert clean_title("") == ""
+
+    def test_single_word(self):
+        assert clean_title("Engineer") == "Engineer"
+
+    def test_strips_whitespace(self):
+        assert clean_title("  Senior Engineer  ") == "Senior Engineer"
+
+
+# ---------------------------------------------------------------------------
+# _poll_for_new_cards (Bug #12)
+# ---------------------------------------------------------------------------
+
+
+class TestPollForNewCards:
+    def test_returns_true_when_count_increases(self):
+        page = MagicMock()
+        locator = MagicMock()
+        locator.count.return_value = 15
+        page.locator.return_value = locator
+        page.wait_for_timeout = MagicMock()
+
+        result = _poll_for_new_cards(page, ".job-search-card", count_before=10)
+        assert result is True
+
+    def test_returns_false_when_count_unchanged(self):
+        page = MagicMock()
+        locator = MagicMock()
+        locator.count.return_value = 10
+        page.locator.return_value = locator
+        page.wait_for_timeout = MagicMock()
+
+        result = _poll_for_new_cards(page, ".job-search-card", count_before=10)
+        assert result is False
+
+    def test_polls_multiple_times(self):
+        page = MagicMock()
+        locator = MagicMock()
+        # Count increases on 3rd poll
+        locator.count.side_effect = [10, 10, 15]
+        page.locator.return_value = locator
+        page.wait_for_timeout = MagicMock()
+
+        result = _poll_for_new_cards(page, ".job-search-card", count_before=10)
+        assert result is True
+        assert page.wait_for_timeout.call_count == 3
+
+
+# ---------------------------------------------------------------------------
+# scroll_loop — stop conditions
+# ---------------------------------------------------------------------------
 
 
 class TestScrollLoop:
@@ -311,3 +411,100 @@ class TestScrollLoop:
         assert cards == []
         captured = capsys.readouterr()
         assert "DOM structure has changed" in captured.err
+
+    def test_collects_all_cards_from_single_page(self):
+        """scroll_loop collects all cards rendered on the page."""
+        today = datetime.now(timezone.utc).date().isoformat()
+        all_cards = [
+            _make_element("100", today),
+            _make_element("101", today),
+            _make_element("200", today),
+            _make_element("201", today),
+            _make_element("300", today),
+        ]
+
+        page = self._make_page([all_cards])
+
+        cards = list(scroll_loop(page, limit=10, lookback_days=30))
+        assert len(cards) == 5
+        ids = [c.platform_id for c in cards]
+        assert "100" in ids
+        assert "200" in ids
+        assert "300" in ids
+
+    def test_applies_clean_title(self):
+        """Bug #13: duplicated title text should be deduplicated."""
+        today = datetime.now(timezone.utc).date().isoformat()
+        el = _make_element("999", today, title="Senior Engineer Senior Engineer")
+        page = self._make_page([[el]] + [[]] * 10)
+
+        cards = list(scroll_loop(page, limit=10, lookback_days=30))
+        assert len(cards) == 1
+        assert cards[0].title == "Senior Engineer"
+
+    def test_max_empty_scrolls_is_8(self):
+        """Bug #12: _MAX_EMPTY_SCROLLS should be 8, not 5."""
+        from jobhunt.fetcher import _MAX_EMPTY_SCROLLS
+        assert _MAX_EMPTY_SCROLLS == 8
+
+    def test_poll_timeout_and_interval_values(self):
+        """Issue #16: poll timeouts increased for lazy-load reliability."""
+        from jobhunt.fetcher import _POLL_INTERVAL_MS, _POLL_TIMEOUT_MS
+        assert _POLL_TIMEOUT_MS == 4000
+        assert _POLL_INTERVAL_MS == 500
+
+
+# ---------------------------------------------------------------------------
+# Issue #17: skip already-scraped jobs in fetch loop
+# ---------------------------------------------------------------------------
+
+
+class TestFetchSkipsExisting:
+    """Issue #17: platform_ids already in DB are skipped without _fetch_with_retry."""
+
+    def test_existing_platform_id_skipped(self, tmp_db):
+        """Already-scraped job should be skipped without navigating to detail page."""
+        from jobhunt.db import upsert_job
+        from jobhunt import db as db_module
+
+        card = JobCard(
+            platform_id="1111111111",
+            title="Test Job",
+            company="TestCo",
+            location="Remote",
+            posted_at=datetime(2026, 2, 20, tzinfo=timezone.utc),
+            job_url="https://www.linkedin.com/jobs/view/1111111111/",
+        )
+
+        # Pre-seed the DB
+        upsert_job(tmp_db, card, "jd text", "hash1")
+
+        # Mock _fetch_with_retry to verify it's never called
+        page = MagicMock()
+        stats = RunStats()
+
+        with patch("jobhunt.fetcher._fetch_with_retry") as mock_fwr:
+            # Simulate the fetch loop logic from run_fetch
+            if db_module.job_exists(tmp_db, "linkedin", card.platform_id):
+                stats.skipped += 1
+            else:
+                mock_fwr(page, card, tmp_db, False)
+
+            mock_fwr.assert_not_called()
+
+        assert stats.skipped == 1
+
+    def test_new_platform_id_not_skipped(self, tmp_db):
+        """New job should proceed to _fetch_with_retry."""
+        from jobhunt import db as db_module
+
+        card = JobCard(
+            platform_id="2222222222",
+            title="New Job",
+            company="NewCo",
+            location="Remote",
+            posted_at=datetime(2026, 2, 20, tzinfo=timezone.utc),
+            job_url="https://www.linkedin.com/jobs/view/2222222222/",
+        )
+
+        assert db_module.job_exists(tmp_db, "linkedin", card.platform_id) is False

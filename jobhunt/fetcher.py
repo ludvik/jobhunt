@@ -28,7 +28,7 @@ from jobhunt.utils import log_error, log_info, log_warn, parse_iso, parse_relati
 # LinkedIn selectors (verified 2026-02-25 against live LinkedIn DOM — §4.2)
 # ---------------------------------------------------------------------------
 
-_JOB_CARD_SELECTOR = ".job-search-card"
+_JOB_CARD_SELECTOR = "li[data-occludable-job-id]"
 _JOB_ID_PATTERN = re.compile(r"jobPosting:(\d+)")
 _JOB_CARD_FALLBACKS = [
     "li[data-occludable-job-id]",
@@ -38,10 +38,14 @@ _JOB_CARD_FALLBACKS = [
     "li[data-view-name='search-entity-result']",
 ]
 
-_MAX_EMPTY_SCROLLS = 5  # consecutive empty scrolls before assuming end-of-feed
+_MAX_EMPTY_SCROLLS = 8  # consecutive empty scrolls before assuming end-of-feed
+_POLL_INTERVAL_MS = 500  # ms between card-count polls after scroll
+_POLL_TIMEOUT_MS = 4000  # max ms to wait for new cards after scroll
 
 # Card field selector candidates (for logged-in recommended feed compatibility)
 _JOB_TITLE_SELECTORS = [
+    "a.job-card-list__title--link",
+    "a.job-card-container__link",
     ".base-search-card__title",
     "h3",
     "h4",
@@ -51,12 +55,17 @@ _JOB_TITLE_SELECTORS = [
 
 _JOB_COMPANY_SELECTORS = [
     ".base-search-card__subtitle",
-    "p[data-test-job-card-container-subtitle]",
+    "h4.base-search-card__subtitle",
+    "a.hidden-nested-link",
     ".job-card-container__company-name",
+    ".artdeco-entity-lockup__subtitle",
+    "span.job-card-container__primary-description",
+    "p[data-test-job-card-container-subtitle]",
 ]
 
 _JOB_LOCATION_SELECTORS = [
     ".job-search-card__location",
+    ".artdeco-entity-lockup__caption",
     ".job-card-container__metadata-item",
     ".job-card-container__metadata-wrapper",
 ]
@@ -66,12 +75,51 @@ _JOB_LOCATION_SELECTORS = [
 # utility helpers for resilient extraction
 # ---------------------------------------------------------------------------
 
+def clean_title(text: str) -> str:
+    """Clean a job title by removing verification badge text and deduplication.
+
+    Handles LinkedIn DOM quirk where inner_text() on a container element
+    returns the visible title concatenated with aria/span text, e.g.
+    'Senior Engineer Senior Engineer' or 'Senior Engineer with verification'.
+    """
+    # Strip verification badge suffixes (case-insensitive)
+    text = re.sub(r"\s+with verification\s*$", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+verification badge\s*$", "", text, flags=re.IGNORECASE)
+
+    # Deduplicate: if word list has even length and first half == second half
+    words = text.split()
+    if len(words) >= 2 and len(words) % 2 == 0:
+        mid = len(words) // 2
+        if words[:mid] == words[mid:]:
+            text = " ".join(words[:mid])
+
+    return text.strip()
+
+
+def _poll_for_new_cards(page, selector: str, count_before: int) -> bool:
+    """Poll for new cards to appear after a scroll, up to _POLL_TIMEOUT_MS.
+
+    Returns True if new cards appeared, False if timeout reached.
+    """
+    elapsed = 0
+    while elapsed < _POLL_TIMEOUT_MS:
+        page.wait_for_timeout(_POLL_INTERVAL_MS)
+        elapsed += _POLL_INTERVAL_MS
+        try:
+            count_now = page.locator(selector).count()
+            if isinstance(count_now, int) and count_now > count_before:
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def _locator_first(locator):
     """Return `.first` if it exists, else the locator itself."""
     return getattr(locator, "first", locator)
 
 
-def _first_text(el, selectors: list[str], *, timeout_ms: int = 900) -> str:
+def _first_text(el, selectors: list[str], *, timeout_ms: int = 200) -> str:
     for selector in selectors:
         try:
             locator = _locator_first(el.locator(selector))
@@ -111,6 +159,64 @@ def _extract_platform_id(el) -> str:
         if legacy_id.isdigit():
             return legacy_id
     return ""
+
+
+_JOB_DATE_SELECTORS = [
+    "time[datetime]",
+    "span.job-search-card__listdate",
+    "span.job-search-card__listdate--new",
+    "span[class*='listdate']",
+    "time",
+]
+
+
+def _extract_posted_at(el) -> datetime | None:
+    """Extract posted_at datetime from a job card element.
+
+    Tries multiple selector strategies:
+    1. time[datetime] attribute (ISO date)
+    2. span.job-search-card__listdate (relative text like '2 days ago')
+    3. Any element with class containing 'listdate'
+    4. Bare <time> element inner text
+    """
+    # Strategy 1: time[datetime] attribute
+    try:
+        time_el = _locator_first(el.locator("time[datetime]"))
+        count = time_el.count()
+        if (not isinstance(count, int)) or count > 0:
+            datetime_attr = time_el.get_attribute("datetime")
+            result = parse_iso(datetime_attr)
+            if result is not None:
+                return result
+    except Exception:
+        pass
+
+    # Strategy 2–3: text-based date selectors
+    for selector in _JOB_DATE_SELECTORS[1:]:
+        try:
+            loc = _locator_first(el.locator(selector))
+            count = loc.count()
+            if isinstance(count, int) and count <= 0:
+                continue
+            label = loc.inner_text(timeout=200).strip()
+            if label:
+                result = parse_relative_date(label)
+                if result is not None:
+                    return result
+        except Exception:
+            continue
+
+    # Strategy 4: bare <time> fallback
+    try:
+        any_time = _locator_first(el.locator("time"))
+        any_count = any_time.count()
+        if (not isinstance(any_count, int)) or any_count > 0:
+            label = any_time.inner_text(timeout=900).strip()
+            return parse_relative_date(label)
+    except Exception:
+        pass
+
+    return None
 
 
 def _extract_job_url(el) -> str:
@@ -209,6 +315,17 @@ def run_fetch(
                 )
                 sys.exit(1)
 
+        # Wait for job cards to render (LinkedIn loads them via JS after DOM ready)
+        try:
+            for sel in [_JOB_CARD_SELECTOR, *_JOB_CARD_FALLBACKS]:
+                try:
+                    page.wait_for_selector(sel, timeout=8000)
+                    break
+                except Exception:
+                    continue
+        except Exception:
+            pass  # scroll_loop will handle empty state
+
         # Collect all cards first so we know the total for verbose progress
         if verbose:
             log_info("Scrolling feed to collect job cards...")
@@ -223,6 +340,13 @@ def run_fetch(
 
         try:
             for i, card in enumerate(cards, 1):
+                # Skip if already in DB (platform_id dedup — Issue #17)
+                if db_module.job_exists(conn, "linkedin", card.platform_id):
+                    stats.skipped += 1
+                    if verbose:
+                        _print_verbose_line(i, total, "skipped", False, card)
+                    continue
+
                 result, is_repost = _fetch_with_retry(page, card, conn, dry_run)
 
                 if result == "new":
@@ -258,111 +382,74 @@ def run_fetch(
 
 
 def scroll_loop(page, limit: int, lookback_days: int) -> Generator[JobCard, None, None]:
-    """Scroll the job feed, yielding JobCard objects within the lookback window.
+    """Collect job cards from the feed, yielding JobCard objects within the lookback window.
+
+    LinkedIn recommended feed renders all ~24 cards in a single page
+    (no real pagination — the Next button is cosmetic). With a tall viewport
+    all cards are rendered at once via occludable lazy-render.
 
     Stops when:
       (a) All visible cards are older than lookback_days.
-      (b) No new cards appear after MAX_EMPTY_SCROLLS consecutive scrolls.
-      (c) Total yielded reaches limit.
+      (b) Total yielded reaches limit.
     """
     cutoff_date = datetime.now(timezone.utc) - timedelta(days=lookback_days)
     seen_ids: set[str] = set()
     cards_yielded = 0
-    no_new_cards_streak = 0
 
-    while cards_yielded < limit:
-        # Collect all currently visible job card elements
-        card_elements = _iter_job_cards(page)
+    # Collect all job card elements on the page
+    card_elements = _iter_job_cards(page)
 
-        if not card_elements:
-            log_error(
-                "LinkedIn DOM structure has changed — no job cards found. "
-                "Please open a GitHub issue."
-            )
+    if not card_elements:
+        log_error(
+            "LinkedIn DOM structure has changed — no job cards found. "
+            "Please open a GitHub issue."
+        )
+        return
+
+    for el in card_elements:
+        platform_id = _extract_platform_id(el)
+        if not platform_id or platform_id in seen_ids:
+            continue
+        seen_ids.add(platform_id)
+
+        # Parse posted_at from card (avoid unnecessary detail page visit)
+        posted_at = _extract_posted_at(el)
+
+        # Lookback cutoff check
+        if posted_at and posted_at < cutoff_date:
+            continue
+
+        title = clean_title(_first_text(
+            el,
+            _JOB_TITLE_SELECTORS,
+        ))
+        company = _first_text(
+            el,
+            _JOB_COMPANY_SELECTORS,
+        )
+        location = _first_text(
+            el,
+            _JOB_LOCATION_SELECTORS,
+        )
+        job_url = _extract_job_url(el)
+
+        if not job_url:
+            continue
+        if not title:
+            log_warn(f"Failed to extract title for {platform_id}")
+            continue
+
+        yield JobCard(
+            platform_id=platform_id,
+            title=title,
+            company=company,
+            location=location,
+            posted_at=posted_at,
+            job_url=job_url,
+        )
+        cards_yielded += 1
+        if cards_yielded >= limit:
             return
-
-        new_this_scroll = 0
-        all_too_old = True
-
-        for el in card_elements:
-            platform_id = _extract_platform_id(el)
-            if not platform_id or platform_id in seen_ids:
-                continue
-            seen_ids.add(platform_id)
-            new_this_scroll += 1
-
-            # Parse posted_at from card (avoid unnecessary detail page visit)
-            posted_time_el = _locator_first(el.locator("time[datetime]"))
-            posted_count = posted_time_el.count()
-            if (isinstance(posted_count, int) and posted_count > 0) or not isinstance(posted_count, int):
-                if isinstance(posted_count, int) and posted_count <= 0:
-                    datetime_attr = None
-                else:
-                    datetime_attr = posted_time_el.get_attribute("datetime")
-            else:
-                datetime_attr = None
-
-            posted_at = parse_iso(datetime_attr)
-
-            if posted_at is None:
-                any_time = _locator_first(el.locator("time"))
-                any_count = any_time.count()
-                label = any_time.inner_text(timeout=900) if (not isinstance(any_count, int)) or any_count > 0 else ""
-                posted_at = parse_relative_date(label)
-
-            # Lookback cutoff check
-            if posted_at and posted_at < cutoff_date:
-                continue
-            else:
-                all_too_old = False
-
-            title = _first_text(
-                el,
-                _JOB_TITLE_SELECTORS,
-            )
-            company = _first_text(
-                el,
-                _JOB_COMPANY_SELECTORS,
-            )
-            location = _first_text(
-                el,
-                _JOB_LOCATION_SELECTORS,
-            )
-            job_url = _extract_job_url(el)
-
-            if not job_url:
-                continue
-            if not title:
-                log_warn(f"Failed to extract title for {platform_id}")
-                continue
-
-            yield JobCard(
-                platform_id=platform_id,
-                title=title,
-                company=company,
-                location=location,
-                posted_at=posted_at,
-                job_url=job_url,
-            )
-            cards_yielded += 1
-            if cards_yielded >= limit:
-                return
-
-        # End-of-feed detection
-        if new_this_scroll == 0:
-            no_new_cards_streak += 1
-            if no_new_cards_streak >= _MAX_EMPTY_SCROLLS:
-                return
-        else:
-            no_new_cards_streak = 0
-
-        # All visible cards are beyond lookback window → stop
-        if all_too_old and new_this_scroll > 0:
-            return
-
-        # Scroll down to trigger lazy-load
-        page.evaluate("window.scrollBy(0, window.innerHeight * 2)")
-        page.wait_for_timeout(1_500)
 
 
 # ---------------------------------------------------------------------------
@@ -431,7 +518,6 @@ _RESULT_LABELS = {
 
 _RESULT_ANNOTATIONS = {
     "skipped": "  (duplicate: platform_id)",
-    "updated": "  (JD changed)",
 }
 
 
