@@ -412,18 +412,18 @@ class TestScrollLoop:
         captured = capsys.readouterr()
         assert "DOM structure has changed" in captured.err
 
-    def test_scrolls_to_collect_across_multiple_pages(self):
-        """Bug #6/#16: scroll_loop must paginate past the first visible set."""
+    def test_collects_all_cards_from_single_page(self):
+        """scroll_loop collects all cards rendered on the page."""
         today = datetime.now(timezone.utc).date().isoformat()
-        batch1 = [_make_element("100", today), _make_element("101", today)]
-        batch2 = batch1 + [_make_element("200", today), _make_element("201", today)]
-        batch3 = batch2 + [_make_element("300", today)]
+        all_cards = [
+            _make_element("100", today),
+            _make_element("101", today),
+            _make_element("200", today),
+            _make_element("201", today),
+            _make_element("300", today),
+        ]
 
-        page = self._make_page([batch1, batch2, batch3] + [[]] * 10)
-
-        # Mock the last-card scroll_into_view_if_needed path
-        last_card_mock = MagicMock()
-        page.locator.return_value.last = last_card_mock
+        page = self._make_page([all_cards])
 
         cards = list(scroll_loop(page, limit=10, lookback_days=30))
         assert len(cards) == 5

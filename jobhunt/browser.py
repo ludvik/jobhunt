@@ -77,9 +77,9 @@ def launch_context(
     try:
         browser = pw.chromium.launch(headless=headless)
 
-        # Large viewport so LinkedIn renders all job cards on the page
-        # (LinkedIn uses "occludable" lazy rendering based on viewport)
-        viewport = {"width": 1920, "height": 8000}
+        # Tall viewport so LinkedIn renders all job cards at once
+        # (LinkedIn recommended feed uses occludable lazy-render by viewport)
+        viewport = {"width": 1920, "height": 4000}
 
         if session_path and os.path.exists(session_path):
             context = browser.new_context(

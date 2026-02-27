@@ -382,118 +382,74 @@ def run_fetch(
 
 
 def scroll_loop(page, limit: int, lookback_days: int) -> Generator[JobCard, None, None]:
-    """Page through the job feed, yielding JobCard objects within the lookback window.
+    """Collect job cards from the feed, yielding JobCard objects within the lookback window.
 
-    LinkedIn uses button-based pagination (not infinite scroll).
+    LinkedIn recommended feed renders all ~24 cards in a single page
+    (no real pagination — the Next button is cosmetic). With a tall viewport
+    all cards are rendered at once via occludable lazy-render.
+
     Stops when:
       (a) All visible cards are older than lookback_days.
-      (b) No "Next" button found (last page).
-      (c) Total yielded reaches limit.
+      (b) Total yielded reaches limit.
     """
     cutoff_date = datetime.now(timezone.utc) - timedelta(days=lookback_days)
     seen_ids: set[str] = set()
     cards_yielded = 0
 
-    while cards_yielded < limit:
-        # Wait for cards to render on current page
-        try:
-            for sel in [_JOB_CARD_SELECTOR, *_JOB_CARD_FALLBACKS]:
-                try:
-                    page.wait_for_selector(sel, timeout=5000)
-                    break
-                except Exception:
-                    continue
-        except Exception:
-            pass
+    # Collect all job card elements on the page
+    card_elements = _iter_job_cards(page)
 
-        # Collect all job card elements on current page
-        card_elements = _iter_job_cards(page)
+    if not card_elements:
+        log_error(
+            "LinkedIn DOM structure has changed — no job cards found. "
+            "Please open a GitHub issue."
+        )
+        return
 
-        if not card_elements:
-            log_error(
-                "LinkedIn DOM structure has changed — no job cards found. "
-                "Please open a GitHub issue."
-            )
+    for el in card_elements:
+        platform_id = _extract_platform_id(el)
+        if not platform_id or platform_id in seen_ids:
+            continue
+        seen_ids.add(platform_id)
+
+        # Parse posted_at from card (avoid unnecessary detail page visit)
+        posted_at = _extract_posted_at(el)
+
+        # Lookback cutoff check
+        if posted_at and posted_at < cutoff_date:
+            continue
+
+        title = clean_title(_first_text(
+            el,
+            _JOB_TITLE_SELECTORS,
+        ))
+        company = _first_text(
+            el,
+            _JOB_COMPANY_SELECTORS,
+        )
+        location = _first_text(
+            el,
+            _JOB_LOCATION_SELECTORS,
+        )
+        job_url = _extract_job_url(el)
+
+        if not job_url:
+            continue
+        if not title:
+            log_warn(f"Failed to extract title for {platform_id}")
+            continue
+
+        yield JobCard(
+            platform_id=platform_id,
+            title=title,
+            company=company,
+            location=location,
+            posted_at=posted_at,
+            job_url=job_url,
+        )
+        cards_yielded += 1
+        if cards_yielded >= limit:
             return
-
-        new_this_page = 0
-        all_too_old = True
-
-        for el in card_elements:
-            platform_id = _extract_platform_id(el)
-            if not platform_id or platform_id in seen_ids:
-                continue
-            seen_ids.add(platform_id)
-            new_this_page += 1
-
-            # Parse posted_at from card (avoid unnecessary detail page visit)
-            posted_at = _extract_posted_at(el)
-
-            # Lookback cutoff check
-            if posted_at and posted_at < cutoff_date:
-                continue
-            else:
-                all_too_old = False
-
-            title = clean_title(_first_text(
-                el,
-                _JOB_TITLE_SELECTORS,
-            ))
-            company = _first_text(
-                el,
-                _JOB_COMPANY_SELECTORS,
-            )
-            location = _first_text(
-                el,
-                _JOB_LOCATION_SELECTORS,
-            )
-            job_url = _extract_job_url(el)
-
-            if not job_url:
-                continue
-            if not title:
-                log_warn(f"Failed to extract title for {platform_id}")
-                continue
-
-            yield JobCard(
-                platform_id=platform_id,
-                title=title,
-                company=company,
-                location=location,
-                posted_at=posted_at,
-                job_url=job_url,
-            )
-            cards_yielded += 1
-            if cards_yielded >= limit:
-                return
-
-        # All visible cards are beyond lookback window → stop
-        if all_too_old and new_this_page > 0:
-            return
-
-        # No new cards on this page (all seen) — still try next page
-        # but if we got zero new IDs, something is wrong
-        if new_this_page == 0:
-            return
-
-        # Click "Next" button to go to next page
-        next_btn = page.locator('button[aria-label="Next"]')
-        try:
-            if next_btn.count() == 0 or not next_btn.is_enabled():
-                log_info("No more pages (Next button not found or disabled).")
-                return  # Last page
-        except Exception:
-            return
-
-        try:
-            next_btn.scroll_into_view_if_needed(timeout=3000)
-            next_btn.click(timeout=3000)
-            log_info("Navigating to next page...")
-            # Wait for new cards to load after page transition
-            page.wait_for_timeout(3000)
-        except Exception as exc:
-            log_warn(f"Failed to navigate to next page: {exc}")
-            return  # Click failed, stop
 
 
 # ---------------------------------------------------------------------------
