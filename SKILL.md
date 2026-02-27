@@ -168,10 +168,10 @@ task: "Run full pipeline for job <job_id>. Read SKILL.md at ~/.openclaw/workspac
 1. **Read job info**: `cd ~/code/openclaw-tools/jobhunt && uv run jobhunt show <job_id>` → get status, URL, JD
 2. **Check status**:
    - `new` → proceed to step 3 (Tailor)
-   - `tailored` → skip to step 4 (Apply)
+   - `tailored` → proceed to step 4 (Verify artifacts)
    - `skipped`/`blocked`/`apply_failed`/`applied` → STOP, report "Job not eligible, status=<status>"
 3. **Tailor** — follow the Tailor Workflow section below (steps 1-11). When done, job status = `tailored`.
-4. **Verify artifacts**: Confirm `~/.openclaw/data/jobhunt/resumes/<job_id>/resume.pdf` exists. If not, try PDF generation. If still missing, proceed with `tailored.md` only.
+4. **Verify artifacts**: Check if `~/.openclaw/data/jobhunt/resumes/<job_id>/tailored.md` and `resume.pdf` exist. If missing, run the Tailor Workflow to generate them (even if status is already `tailored`). If PDF generation fails, proceed with `tailored.md` only.
 5. **Apply** — follow the Apply Workflow section below (steps 1-12).
 6. **Report**: Summarize what happened (tailored? applied? blocked? why?)
 
@@ -199,7 +199,7 @@ task: "Apply to job <job_id>. Read SKILL.md at ~/.openclaw/workspace/skills/jobh
 2. **Read profile**: Read `~/.openclaw/data/jobhunt/profile/structured.yaml` → form fill data
 3. **Read narrative**: Read `~/.openclaw/data/jobhunt/profile/career-narrative.md` + `values-and-style.md` → for subjective questions
 4. **Read platform knowledge**: Read `~/.openclaw/data/jobhunt/apply-knowledge/platforms/linkedin-easy.md` → past experience
-5. **Open job page**: Use browser tool to navigate to the job URL
+5. **Open job page**: Use browser tool with `profile="openclaw"` to navigate to the job URL. **Always use profile="openclaw"** (the managed Chromium instance), never profile="chrome" (the Chrome extension relay).
 6. **Check Easy Apply button**:
    - Found → click it, enter the Easy Apply modal
    - Not found → run `uv run jobhunt status <id> --set blocked --note "No Easy Apply button, requires external application"` → write log → STOP
