@@ -480,15 +480,19 @@ def scroll_loop(page, limit: int, lookback_days: int) -> Generator[JobCard, None
         next_btn = page.locator('button[aria-label="Next"]')
         try:
             if next_btn.count() == 0 or not next_btn.is_enabled():
+                log_info("No more pages (Next button not found or disabled).")
                 return  # Last page
         except Exception:
             return
 
         try:
+            next_btn.scroll_into_view_if_needed(timeout=3000)
             next_btn.click(timeout=3000)
-            # Wait for page transition — cards should refresh
-            page.wait_for_timeout(2000)
-        except Exception:
+            log_info("Navigating to next page...")
+            # Wait for new cards to load after page transition
+            page.wait_for_timeout(3000)
+        except Exception as exc:
+            log_warn(f"Failed to navigate to next page: {exc}")
             return  # Click failed, stop
 
 
