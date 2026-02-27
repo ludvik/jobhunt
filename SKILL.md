@@ -199,7 +199,7 @@ task: "Apply to job <job_id>. Read SKILL.md at ~/.openclaw/workspace/skills/jobh
 2. **Read profile**: Read `~/.openclaw/data/jobhunt/profile/structured.yaml` → form fill data
 3. **Read narrative**: Read `~/.openclaw/data/jobhunt/profile/career-narrative.md` + `values-and-style.md` → for subjective questions
 4. **Read platform knowledge**: Read `~/.openclaw/data/jobhunt/apply-knowledge/platforms/linkedin-easy.md` → past experience
-5. **Open job page**: Use browser tool with `profile="openclaw"` to navigate to the job URL. **Always use profile="openclaw"** (the managed Chromium instance), never profile="chrome" (the Chrome extension relay).
+5. **Open job page**: Use browser tool with `profile="openclaw"` AND `target="host"` to navigate to the job URL. **Always use profile="openclaw"** (the managed Chromium instance), never profile="chrome" (the Chrome extension relay). **Always use target="host"** — this is required for subagent sessions which may default to sandbox target.
 6. **Find the apply path** — adapt to whatever the page offers:
    - **LinkedIn Easy Apply** → click the Easy Apply button, fill the modal
    - **"Apply on company website"** → click through to the external site, continue there
