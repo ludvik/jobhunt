@@ -150,7 +150,7 @@ def _try_click_show_more(page) -> bool:
             if _locator_visible(btn):
                 btn.click()
                 try:
-                    page.wait_for_timeout(500)
+                    page.wait_for_timeout(200)
                 except Exception:
                     pass
                 return True
@@ -204,7 +204,7 @@ def _find_jd_container(page):
 
     for selector in selectors:
         try:
-            page.wait_for_selector(selector, timeout=3_000)
+            page.wait_for_selector(selector, timeout=1_500)
             container = page.locator(selector)
             try:
                 if container.count() > 0:
@@ -261,7 +261,7 @@ def _extract_from_broad_sections(page) -> str:
             for idx in range(min(count, 5)):
                 node = loc.nth(idx) if hasattr(loc, "nth") and count > 1 else loc
                 try:
-                    text = node.inner_text(timeout=1000).strip()
+                    text = node.inner_text(timeout=300).strip()
                 except Exception:
                     continue
                 if text and len(text) > 300:
