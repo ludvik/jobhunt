@@ -205,7 +205,10 @@ task: "Apply to job <job_id>. Read SKILL.md at ~/.openclaw/workspace/skills/jobh
    - **"Apply on company website"** → click through to the external site, continue there
    - **Direct company career page** → navigate and fill their application form
    - **Any other ATS** (Workday, Greenhouse, Lever, Ashby, etc.) → proceed with their form
+   - **Greenhouse iframe workaround**: If the company embeds Greenhouse in an iframe, do NOT try to snapshot the iframe. Instead navigate directly to `https://boards.greenhouse.io/<company>/jobs/<job_id>` (extract company and job_id from the iframe URL). This gives you the full form without iframe issues.
    - The goal is to submit an application regardless of platform. Only STOP if you hit an insurmountable blocker (CAPTCHA that can't be solved, etc.)
+   
+**NEVER restart the OpenClaw gateway or run `openclaw gateway restart`.** If browser times out, retry 2-3 times, then mark apply_failed and stop.
 
 ### Login / Authentication Handling
 
