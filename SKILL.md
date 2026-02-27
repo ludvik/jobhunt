@@ -210,6 +210,36 @@ task: "Apply to job <job_id>. Read SKILL.md at ~/.openclaw/workspace/skills/jobh
    
 **NEVER restart the OpenClaw gateway or run `openclaw gateway restart`.** If browser times out, retry 2-3 times, then mark apply_failed and stop.
 
+### File Upload
+
+Browser upload paths are sandboxed. Before uploading:
+1. Copy the file to `/tmp/openclaw/uploads/`: `cp <source> /tmp/openclaw/uploads/<filename>`
+2. Arm the upload BEFORE clicking the upload button: `browser(action="upload", profile="openclaw", target="host", paths=["/tmp/openclaw/uploads/<filename>"])`
+3. Then click the upload button — the file chooser will auto-resolve
+
+### Greenhouse Custom Selects / Comboboxes
+
+Greenhouse uses custom JS dropdown components, NOT standard HTML `<select>`. ArrowDown+Enter often fails. Correct approach:
+1. **Click** the combobox/input field to open the dropdown
+2. **Type** the desired value (e.g., "Yes", "No", "United States") to filter options  
+3. **Snapshot** to see the filtered dropdown options
+4. **Click** the matching option from the dropdown list
+5. **Snapshot** again to verify the value was set
+6. If the dropdown doesn't appear, try clicking the small arrow/chevron icon next to the field
+
+Do NOT try to set all fields at once. Fill ONE field → verify → move to next.
+
+### Form Filling Strategy
+
+Do NOT scroll back and forth. Follow this systematic approach:
+1. Snapshot the visible form area
+2. Fill all visible fields top-to-bottom
+3. After filling visible fields, scroll down once
+4. Snapshot again, fill new visible fields
+5. Repeat until reaching the Submit button
+6. Before submitting: scroll back to top and do ONE verification pass
+7. Submit
+
 ### Login / Authentication Handling
 
 When you encounter a login wall on any platform:
