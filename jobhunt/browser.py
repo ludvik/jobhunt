@@ -82,6 +82,8 @@ def launch_context(
         else:
             context = browser.new_context()
 
+        context.set_default_timeout(8_000)
+        context.set_default_navigation_timeout(15_000)
         return context, browser, pw
     except Exception:
         pw.stop()

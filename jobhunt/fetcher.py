@@ -76,7 +76,7 @@ def _locator_first(locator):
     return getattr(locator, "first", locator)
 
 
-def _first_text(el, selectors: list[str], *, timeout_ms: int = 900) -> str:
+def _first_text(el, selectors: list[str], *, timeout_ms: int = 200) -> str:
     for selector in selectors:
         try:
             locator = _locator_first(el.locator(selector))
@@ -155,7 +155,7 @@ def _extract_posted_at(el) -> datetime | None:
             count = loc.count()
             if isinstance(count, int) and count <= 0:
                 continue
-            label = loc.inner_text(timeout=900).strip()
+            label = loc.inner_text(timeout=200).strip()
             if label:
                 result = parse_relative_date(label)
                 if result is not None:
@@ -407,9 +407,9 @@ def scroll_loop(page, limit: int, lookback_days: int) -> Generator[JobCard, None
         if all_too_old and new_this_scroll > 0:
             return
 
-        # Scroll to absolute bottom to trigger lazy-load of next batch
-        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        page.wait_for_timeout(2_000)
+        # Scroll down to trigger lazy-load
+        page.evaluate("window.scrollBy(0, window.innerHeight * 2)")
+        page.wait_for_timeout(600)
 
 
 # ---------------------------------------------------------------------------
