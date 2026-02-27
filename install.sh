@@ -18,7 +18,9 @@ uv run playwright install chromium
 echo "==> Creating data directories..."
 mkdir -p "${DATA_DIR}/session"
 mkdir -p "${DATA_DIR}/resumes"
-# Prompt templates now live in the agent workspace, not the tool data dir
+mkdir -p "${DATA_DIR}/apply-log"
+mkdir -p "${DATA_DIR}/apply-knowledge/platforms"
+mkdir -p "${DATA_DIR}/profile"
 
 echo "==> Installing SKILL.md..."
 mkdir -p "${SKILLS_DIR}"

@@ -104,6 +104,9 @@ Notes are append-only (never overwritten).
 | `~/.openclaw/data/jobhunt/session/linkedin.json` | LinkedIn session (perm 0600) |
 | `~/.openclaw/data/jobhunt/config.json` | Config file |
 | `~/.openclaw/data/jobhunt/resumes/<job_id>/` | Per-job resume artifacts |
+| `~/.openclaw/data/jobhunt/profile/` | Applicant ground truth (structured.yaml + narrative md files) |
+| `~/.openclaw/data/jobhunt/apply-log/<job_id>.md` | Per-job apply log |
+| `~/.openclaw/data/jobhunt/apply-knowledge/platforms/` | Platform experience knowledge base |
 
 ---
 
@@ -146,6 +149,99 @@ All prompts live in the workspace (version-controlled):
   "tailored_at": "2026-02-27T03:00:00Z"
 }
 ```
+
+---
+
+## Apply Workflow (Agent-Driven Browser Automation)
+
+Job application is done by a **spawned subagent** using the OpenClaw browser tool. The CLI is not involved in the apply process itself.
+
+### Trigger
+
+Orchestrator (Kibi) spawns a subagent with:
+```
+task: "Apply to job <job_id>. Read SKILL.md at ~/.openclaw/skills/jobhunt/SKILL.md, follow the Apply Workflow section."
+```
+
+### Prerequisites
+- Job status = `tailored`
+- `~/.openclaw/data/jobhunt/resumes/<job_id>/resume.pdf` exists
+- `~/.openclaw/data/jobhunt/profile/structured.yaml` is populated
+
+### Step-by-step
+
+1. **Read job info**: Run `cd ~/code/openclaw-tools/jobhunt && uv run jobhunt show <job_id>` → extract URL, company, title, JD text
+2. **Read profile**: Read `~/.openclaw/data/jobhunt/profile/structured.yaml` → form fill data
+3. **Read narrative**: Read `~/.openclaw/data/jobhunt/profile/career-narrative.md` + `values-and-style.md` → for subjective questions
+4. **Read platform knowledge**: Read `~/.openclaw/data/jobhunt/apply-knowledge/platforms/linkedin-easy.md` → past experience
+5. **Open job page**: Use browser tool to navigate to the job URL
+6. **Check Easy Apply button**:
+   - Found → click it, enter the Easy Apply modal
+   - Not found → run `uv run jobhunt status <id> --set blocked --note "No Easy Apply button, requires external application"` → write log → STOP
+7. **Fill form step by step**:
+   - Before each step: take a snapshot to read current form fields
+   - **Contact info** (name, email, phone): match from `structured.yaml` → `personal.*` fields. LinkedIn usually pre-fills these; verify and correct if needed.
+   - **Resume upload**: upload `~/.openclaw/data/jobhunt/resumes/<job_id>/resume.pdf`
+   - **Cover letter** (if upload option exists): upload `resumes/<job_id>/cover-letter.pdf` if it exists
+   - **Structured questions** (dropdowns, radio buttons, short text):
+     - Years of experience → `structured.yaml` → `experience.total_years` or `experience.by_skill.<name>`
+     - Visa/sponsorship → `structured.yaml` → `work_authorization.*`
+     - Willing to relocate → `structured.yaml` → `preferences.willing_to_relocate`
+     - Diversity questions → `structured.yaml` → `diversity.*`
+     - Other → try to match semantically from structured.yaml
+   - **Open-ended text questions**:
+     - Read the question carefully
+     - Generate answer using: JD content + company context + career-narrative.md + values-and-style.md + the tailored resume positioning
+     - Answer must be specific to this company/role, sound authentic (direct, honest, not corporate boilerplate)
+     - Respect any character limit on the input field
+     - If you are not confident the answer is good enough → do NOT submit → mark `blocked` with note "Needs human input: <exact question>"
+   - Click **Next / Continue** after each step
+8. **Submit**: Click "Submit application" (or equivalent)
+9. **Verify**: Take a snapshot, look for confirmation text ("Application submitted", "Your application was sent", etc.)
+   - If "Already applied" detected → status = `applied`, note = "Previously applied"
+   - If no confirmation detected → status = `apply_failed`, note = "No confirmation detected"
+10. **Write apply log**: Create `~/.openclaw/data/jobhunt/apply-log/<job_id>.md` with format:
+
+```markdown
+# Apply Log: <company> — <title>
+Job ID: <id>
+Date: <ISO 8601 timestamp>
+Platform: LinkedIn Easy Apply
+Job URL: <url>
+
+## Steps
+1. [HH:MM:SS] <action taken>
+2. [HH:MM:SS] <action taken>
+...
+
+## Questions Answered
+- "<question text>" → "<answer given>" (source: structured.yaml | generated)
+
+## Result
+Status: applied | blocked | apply_failed
+Duration: <seconds>s
+Notes: <any issues or observations>
+```
+
+11. **Update status**: Run `uv run jobhunt status <id> --set <status> --note "<note>"`
+12. **Update knowledge base**: Append any new findings to `~/.openclaw/data/jobhunt/apply-knowledge/platforms/linkedin-easy.md`:
+    - New question types encountered
+    - Form structure changes
+    - Strategies that worked or failed
+
+### Failure Handling
+
+| Situation | Action |
+|-----------|--------|
+| Session expired / login required | `apply_failed` + note "Session expired" + notify orchestrator |
+| Easy Apply button missing | `blocked` + note "No Easy Apply" |
+| Required field can't be filled | `apply_failed` + note which field |
+| Open-ended question, low confidence | `blocked` + note "Needs human input: <question>" |
+| CAPTCHA | `apply_failed` + note "CAPTCHA" + notify orchestrator |
+| No confirmation after submit | `apply_failed` + note "No confirmation detected" |
+| "Already applied" | `applied` + note "Previously applied" |
+
+**Critical rule**: Never silently fail. Every outcome must have a log entry and a status update.
 
 ---
 
