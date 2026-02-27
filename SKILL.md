@@ -205,7 +205,19 @@ task: "Apply to job <job_id>. Read SKILL.md at ~/.openclaw/workspace/skills/jobh
    - **"Apply on company website"** → click through to the external site, continue there
    - **Direct company career page** → navigate and fill their application form
    - **Any other ATS** (Workday, Greenhouse, Lever, Ashby, etc.) → proceed with their form
-   - The goal is to submit an application regardless of platform. Only STOP if you hit an insurmountable blocker (CAPTCHA, account creation required, etc.)
+   - The goal is to submit an application regardless of platform. Only STOP if you hit an insurmountable blocker (CAPTCHA that can't be solved, etc.)
+
+### Login / Authentication Handling
+
+When you encounter a login wall on any platform:
+
+1. **Use profile email**: Read `~/.openclaw/data/jobhunt/profile/structured.yaml` → `personal.email` as the login email
+2. **Get password from 1Password**: Run `op item get <domain> --fields password` (e.g., `op item get google.com --fields password`). Try variations: domain name, service name, URL.
+3. **If no 1Password entry**: Try the sign-up / register flow instead — create an account using the profile email
+4. **If sign-up requires email verification**: Check email (if email tool available) or mark `blocked` with note "Needs email verification for <platform>"
+5. **If SSO / OAuth redirect**: Try "Sign in with Google" or "Sign in with LinkedIn" if those sessions are available in the browser
+
+Login is NOT a reason to stop. It's a normal part of applying. Handle it.
 7. **Fill form step by step**:
    - Before each step: take a snapshot to read current form fields
    - **Contact info** (name, email, phone): match from `structured.yaml` → `personal.*` fields. LinkedIn usually pre-fills these; verify and correct if needed.
