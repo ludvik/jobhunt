@@ -6,7 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DATA_DIR="${HOME}/.openclaw/data/jobhunt"
-SKILLS_DIR="${HOME}/.openclaw/skills/jobhunt"
+SKILLS_DIR="${HOME}/.openclaw/workspace/skills/jobhunt"
 
 echo "==> Installing jobhunt dependencies..."
 cd "${SCRIPT_DIR}"

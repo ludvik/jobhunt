@@ -160,7 +160,7 @@ Job application is done by a **spawned subagent** using the OpenClaw browser too
 
 Orchestrator (Kibi) spawns a subagent with:
 ```
-task: "Apply to job <job_id>. Read SKILL.md at ~/.openclaw/skills/jobhunt/SKILL.md, follow the Apply Workflow section."
+task: "Apply to job <job_id>. Read SKILL.md at ~/.openclaw/workspace/skills/jobhunt/SKILL.md, follow the Apply Workflow section."
 ```
 
 ### Prerequisites
