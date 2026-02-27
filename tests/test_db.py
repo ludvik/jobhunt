@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from jobhunt.db import get_job, init_db, query_jobs, upsert_job
+from jobhunt.db import get_job, init_db, job_exists, query_jobs, upsert_job
 from jobhunt.models import JobCard
 from jobhunt.utils import utcnow_iso
 
@@ -76,96 +76,47 @@ class TestInitDb:
 
 
 # ---------------------------------------------------------------------------
-# upsert_job — branch A1: same jd_hash → skip
+# upsert_job — branch A: existing platform_id → always skip (#17)
 # ---------------------------------------------------------------------------
 
 
-class TestUpsertJobBranchA1:
-    """TC-08: existing platform_id with unchanged jd_hash → skipped."""
+class TestUpsertJobBranchA:
+    """Existing platform_id → always skipped, regardless of jd_hash."""
 
-    def test_returns_skipped(self, tmp_db, sample_card):
-        jd_text = "Some job description"
-        jd_hash = "aaa"
+    def test_returns_skipped_same_hash(self, tmp_db, sample_card):
+        upsert_job(tmp_db, sample_card, "Some job description", "aaa")
 
-        # Insert once
-        upsert_job(tmp_db, sample_card, jd_text, jd_hash)
+        result, is_repost = upsert_job(tmp_db, sample_card, "Some job description", "aaa")
+        assert result == "skipped"
+        assert is_repost is False
 
-        # Second call with same hash
-        result, is_repost = upsert_job(tmp_db, sample_card, jd_text, jd_hash)
+    def test_returns_skipped_different_hash(self, tmp_db, sample_card):
+        """Issue #17: even if jd_hash differs, existing platform_id → skipped."""
+        upsert_job(tmp_db, sample_card, "original jd", "aaa")
+        result, is_repost = upsert_job(tmp_db, sample_card, "new jd content", "bbb")
         assert result == "skipped"
         assert is_repost is False
 
     def test_no_db_write(self, tmp_db, sample_card):
-        jd_text = "Some job description"
-        jd_hash = "aaa"
-        upsert_job(tmp_db, sample_card, jd_text, jd_hash)
+        upsert_job(tmp_db, sample_card, "Some job description", "aaa")
 
         count_before = tmp_db.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
-        upsert_job(tmp_db, sample_card, jd_text, jd_hash)
+        upsert_job(tmp_db, sample_card, "Some job description", "aaa")
         count_after = tmp_db.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
 
         assert count_before == count_after == 1
 
-
-# ---------------------------------------------------------------------------
-# upsert_job — branch A2: jd_hash differs → update
-# ---------------------------------------------------------------------------
-
-
-class TestUpsertJobBranchA2:
-    """TC-21: existing platform_id with new jd_hash → updated."""
-
-    def test_returns_updated(self, tmp_db, sample_card):
-        upsert_job(tmp_db, sample_card, "original jd", "aaa")
-        result, is_repost = upsert_job(tmp_db, sample_card, "new jd content", "bbb")
-        assert result == "updated"
-        assert is_repost is False
-
-    def test_updates_jd_text_and_hash(self, tmp_db, sample_card):
+    def test_jd_not_updated_on_duplicate(self, tmp_db, sample_card):
+        """Issue #17: original jd_text preserved when platform_id exists."""
         upsert_job(tmp_db, sample_card, "original jd", "aaa")
         upsert_job(tmp_db, sample_card, "new jd content", "bbb")
 
         row = tmp_db.execute(
-            "SELECT jd_text, jd_hash, updated_at FROM jobs WHERE platform_id = ?",
+            "SELECT jd_text, jd_hash FROM jobs WHERE platform_id = ?",
             (sample_card.platform_id,),
         ).fetchone()
-
-        assert row["jd_text"] == "new jd content"
-        assert row["jd_hash"] == "bbb"
-        assert row["updated_at"] is not None
-
-    def test_no_new_row_inserted(self, tmp_db, sample_card):
-        upsert_job(tmp_db, sample_card, "original jd", "aaa")
-        upsert_job(tmp_db, sample_card, "new jd content", "bbb")
-        count = tmp_db.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
-        assert count == 1
-
-    def test_dry_run_does_not_update(self, tmp_db, sample_card):
-        upsert_job(tmp_db, sample_card, "original jd", "aaa")
-        upsert_job(tmp_db, sample_card, "new jd content", "bbb", dry_run=True)
-
-        row = tmp_db.execute(
-            "SELECT jd_hash FROM jobs WHERE platform_id = ?",
-            (sample_card.platform_id,),
-        ).fetchone()
+        assert row["jd_text"] == "original jd"
         assert row["jd_hash"] == "aaa"
-
-    def test_near_identical_jd_treated_as_skip(self, tmp_db, sample_card):
-        """Bug #7: minor rendering differences (>= 0.95 similarity) → skipped."""
-        original = "We are looking for a Senior Backend Engineer to join Stripe."
-        # Slightly different whitespace/punctuation — similarity well above 0.95
-        tweaked = "We are looking for a Senior Backend Engineer to join Stripe. "
-        upsert_job(tmp_db, sample_card, original, "aaa")
-        result, _ = upsert_job(tmp_db, sample_card, tweaked, "bbb")
-        assert result == "skipped"
-
-    def test_genuinely_different_jd_returns_updated(self, tmp_db, sample_card):
-        """Bug #7: truly different JD text (< 0.95 similarity) → updated."""
-        original = "We are looking for a Senior Backend Engineer to join Stripe."
-        different = "This is a completely different job description for a Data Scientist at OpenAI."
-        upsert_job(tmp_db, sample_card, original, "aaa")
-        result, _ = upsert_job(tmp_db, sample_card, different, "bbb")
-        assert result == "updated"
 
 
 # ---------------------------------------------------------------------------
@@ -214,27 +165,42 @@ class TestUpsertJobBranchB:
 
 
 # ---------------------------------------------------------------------------
-# upsert_job — branch B with jd_hash collision (repost)
+# upsert_job — branch B: same jd_hash, different platform_id (#17)
 # ---------------------------------------------------------------------------
 
 
-class TestUpsertJobRepost:
-    """TC-09, TC-22: same jd_hash, different platform_id → insert + repost flag."""
+class TestUpsertJobSameHashDifferentId:
+    """Issue #17: no repost detection — just insert both."""
 
-    def test_returns_new_with_repost_flag(self, tmp_db, sample_card, sample_card_2):
-        # Insert first card with hash 'ccc'
+    def test_returns_new_no_repost_flag(self, tmp_db, sample_card, sample_card_2):
         upsert_job(tmp_db, sample_card, "jd text", "ccc")
-
-        # Insert second card with same hash
         result, is_repost = upsert_job(tmp_db, sample_card_2, "jd text", "ccc")
         assert result == "new"
-        assert is_repost is True
+        assert is_repost is False
 
     def test_both_rows_exist(self, tmp_db, sample_card, sample_card_2):
         upsert_job(tmp_db, sample_card, "jd text", "ccc")
         upsert_job(tmp_db, sample_card_2, "jd text", "ccc")
         count = tmp_db.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
         assert count == 2
+
+
+# ---------------------------------------------------------------------------
+# job_exists (#17)
+# ---------------------------------------------------------------------------
+
+
+class TestJobExists:
+    def test_returns_false_when_empty(self, tmp_db):
+        assert job_exists(tmp_db, "linkedin", "9999999999") is False
+
+    def test_returns_true_after_insert(self, tmp_db, sample_card):
+        upsert_job(tmp_db, sample_card, "jd text", "hash1")
+        assert job_exists(tmp_db, "linkedin", sample_card.platform_id) is True
+
+    def test_returns_false_for_different_id(self, tmp_db, sample_card):
+        upsert_job(tmp_db, sample_card, "jd text", "hash1")
+        assert job_exists(tmp_db, "linkedin", "0000000000") is False
 
 
 # ---------------------------------------------------------------------------

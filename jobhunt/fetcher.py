@@ -28,7 +28,7 @@ from jobhunt.utils import log_error, log_info, log_warn, parse_iso, parse_relati
 # LinkedIn selectors (verified 2026-02-25 against live LinkedIn DOM — §4.2)
 # ---------------------------------------------------------------------------
 
-_JOB_CARD_SELECTOR = ".job-search-card"
+_JOB_CARD_SELECTOR = "li[data-occludable-job-id]"
 _JOB_ID_PATTERN = re.compile(r"jobPosting:(\d+)")
 _JOB_CARD_FALLBACKS = [
     "li[data-occludable-job-id]",
@@ -39,8 +39,8 @@ _JOB_CARD_FALLBACKS = [
 ]
 
 _MAX_EMPTY_SCROLLS = 8  # consecutive empty scrolls before assuming end-of-feed
-_POLL_INTERVAL_MS = 300  # ms between card-count polls after scroll
-_POLL_TIMEOUT_MS = 2500  # max ms to wait for new cards after scroll
+_POLL_INTERVAL_MS = 500  # ms between card-count polls after scroll
+_POLL_TIMEOUT_MS = 4000  # max ms to wait for new cards after scroll
 
 # Card field selector candidates (for logged-in recommended feed compatibility)
 _JOB_TITLE_SELECTORS = [
@@ -315,6 +315,17 @@ def run_fetch(
                 )
                 sys.exit(1)
 
+        # Wait for job cards to render (LinkedIn loads them via JS after DOM ready)
+        try:
+            for sel in [_JOB_CARD_SELECTOR, *_JOB_CARD_FALLBACKS]:
+                try:
+                    page.wait_for_selector(sel, timeout=8000)
+                    break
+                except Exception:
+                    continue
+        except Exception:
+            pass  # scroll_loop will handle empty state
+
         # Collect all cards first so we know the total for verbose progress
         if verbose:
             log_info("Scrolling feed to collect job cards...")
@@ -329,6 +340,13 @@ def run_fetch(
 
         try:
             for i, card in enumerate(cards, 1):
+                # Skip if already in DB (platform_id dedup — Issue #17)
+                if db_module.job_exists(conn, "linkedin", card.platform_id):
+                    stats.skipped += 1
+                    if verbose:
+                        _print_verbose_line(i, total, "skipped", False, card)
+                    continue
+
                 result, is_repost = _fetch_with_retry(page, card, conn, dry_run)
 
                 if result == "new":
@@ -364,20 +382,31 @@ def run_fetch(
 
 
 def scroll_loop(page, limit: int, lookback_days: int) -> Generator[JobCard, None, None]:
-    """Scroll the job feed, yielding JobCard objects within the lookback window.
+    """Page through the job feed, yielding JobCard objects within the lookback window.
 
+    LinkedIn uses button-based pagination (not infinite scroll).
     Stops when:
       (a) All visible cards are older than lookback_days.
-      (b) No new cards appear after MAX_EMPTY_SCROLLS consecutive scrolls.
+      (b) No "Next" button found (last page).
       (c) Total yielded reaches limit.
     """
     cutoff_date = datetime.now(timezone.utc) - timedelta(days=lookback_days)
     seen_ids: set[str] = set()
     cards_yielded = 0
-    no_new_cards_streak = 0
 
     while cards_yielded < limit:
-        # Collect all currently visible job card elements
+        # Wait for cards to render on current page
+        try:
+            for sel in [_JOB_CARD_SELECTOR, *_JOB_CARD_FALLBACKS]:
+                try:
+                    page.wait_for_selector(sel, timeout=5000)
+                    break
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+        # Collect all job card elements on current page
         card_elements = _iter_job_cards(page)
 
         if not card_elements:
@@ -387,7 +416,7 @@ def scroll_loop(page, limit: int, lookback_days: int) -> Generator[JobCard, None
             )
             return
 
-        new_this_scroll = 0
+        new_this_page = 0
         all_too_old = True
 
         for el in card_elements:
@@ -395,7 +424,7 @@ def scroll_loop(page, limit: int, lookback_days: int) -> Generator[JobCard, None
             if not platform_id or platform_id in seen_ids:
                 continue
             seen_ids.add(platform_id)
-            new_this_scroll += 1
+            new_this_page += 1
 
             # Parse posted_at from card (avoid unnecessary detail page visit)
             posted_at = _extract_posted_at(el)
@@ -438,37 +467,33 @@ def scroll_loop(page, limit: int, lookback_days: int) -> Generator[JobCard, None
             if cards_yielded >= limit:
                 return
 
-        # End-of-feed detection
-        if new_this_scroll == 0:
-            no_new_cards_streak += 1
-            if no_new_cards_streak >= _MAX_EMPTY_SCROLLS:
-                return
-        else:
-            no_new_cards_streak = 0
-
         # All visible cards are beyond lookback window → stop
-        if all_too_old and new_this_scroll > 0:
+        if all_too_old and new_this_page > 0:
             return
 
-        # Record card count before scroll for polling
-        count_before = 0
-        primary_selector = _JOB_CARD_SELECTOR
-        for sel in [_JOB_CARD_SELECTOR, *_JOB_CARD_FALLBACKS]:
-            try:
-                n = page.locator(sel).count()
-                if isinstance(n, int) and n > 0:
-                    count_before = n
-                    primary_selector = sel
-                    break
-            except Exception:
-                continue
+        # No new cards on this page (all seen) — still try next page
+        # but if we got zero new IDs, something is wrong
+        if new_this_page == 0:
+            return
 
-        # Scroll to true bottom to trigger lazy-load
-        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        page.wait_for_timeout(600)
+        # Click "Next" button to go to next page
+        next_btn = page.locator('button[aria-label="Next"]')
+        try:
+            if next_btn.count() == 0 or not next_btn.is_enabled():
+                log_info("No more pages (Next button not found or disabled).")
+                return  # Last page
+        except Exception:
+            return
 
-        # Poll for new cards to appear (LinkedIn lazy-load)
-        _poll_for_new_cards(page, primary_selector, count_before)
+        try:
+            next_btn.scroll_into_view_if_needed(timeout=3000)
+            next_btn.click(timeout=3000)
+            log_info("Navigating to next page...")
+            # Wait for new cards to load after page transition
+            page.wait_for_timeout(3000)
+        except Exception as exc:
+            log_warn(f"Failed to navigate to next page: {exc}")
+            return  # Click failed, stop
 
 
 # ---------------------------------------------------------------------------
@@ -537,7 +562,6 @@ _RESULT_LABELS = {
 
 _RESULT_ANNOTATIONS = {
     "skipped": "  (duplicate: platform_id)",
-    "updated": "  (JD changed)",
 }
 
 

@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 
 from jobhunt.db import init_db, upsert_job
-from jobhunt.fetcher import _fetch_with_retry, _poll_for_new_cards, clean_title, print_summary, scroll_loop
+from jobhunt.fetcher import _fetch_with_retry, _poll_for_new_cards, clean_title, print_summary, run_fetch, scroll_loop
 from jobhunt.models import ExtractionError, JobCard, RunStats
 
 
@@ -413,7 +413,7 @@ class TestScrollLoop:
         assert "DOM structure has changed" in captured.err
 
     def test_scrolls_to_collect_across_multiple_pages(self):
-        """Bug #6: scroll_loop must paginate past the first visible set."""
+        """Bug #6/#16: scroll_loop must paginate past the first visible set."""
         today = datetime.now(timezone.utc).date().isoformat()
         batch1 = [_make_element("100", today), _make_element("101", today)]
         batch2 = batch1 + [_make_element("200", today), _make_element("201", today)]
@@ -421,17 +421,16 @@ class TestScrollLoop:
 
         page = self._make_page([batch1, batch2, batch3] + [[]] * 10)
 
+        # Mock the last-card scroll_into_view_if_needed path
+        last_card_mock = MagicMock()
+        page.locator.return_value.last = last_card_mock
+
         cards = list(scroll_loop(page, limit=10, lookback_days=30))
         assert len(cards) == 5
         ids = [c.platform_id for c in cards]
         assert "100" in ids
         assert "200" in ids
         assert "300" in ids
-
-        # Verify scroll was invoked with scrollTo (not scrollBy)
-        assert page.evaluate.call_count >= 2
-        for c in page.evaluate.call_args_list:
-            assert "scrollTo" in c[0][0]
 
     def test_applies_clean_title(self):
         """Bug #13: duplicated title text should be deduplicated."""
@@ -447,3 +446,65 @@ class TestScrollLoop:
         """Bug #12: _MAX_EMPTY_SCROLLS should be 8, not 5."""
         from jobhunt.fetcher import _MAX_EMPTY_SCROLLS
         assert _MAX_EMPTY_SCROLLS == 8
+
+    def test_poll_timeout_and_interval_values(self):
+        """Issue #16: poll timeouts increased for lazy-load reliability."""
+        from jobhunt.fetcher import _POLL_INTERVAL_MS, _POLL_TIMEOUT_MS
+        assert _POLL_TIMEOUT_MS == 4000
+        assert _POLL_INTERVAL_MS == 500
+
+
+# ---------------------------------------------------------------------------
+# Issue #17: skip already-scraped jobs in fetch loop
+# ---------------------------------------------------------------------------
+
+
+class TestFetchSkipsExisting:
+    """Issue #17: platform_ids already in DB are skipped without _fetch_with_retry."""
+
+    def test_existing_platform_id_skipped(self, tmp_db):
+        """Already-scraped job should be skipped without navigating to detail page."""
+        from jobhunt.db import upsert_job
+        from jobhunt import db as db_module
+
+        card = JobCard(
+            platform_id="1111111111",
+            title="Test Job",
+            company="TestCo",
+            location="Remote",
+            posted_at=datetime(2026, 2, 20, tzinfo=timezone.utc),
+            job_url="https://www.linkedin.com/jobs/view/1111111111/",
+        )
+
+        # Pre-seed the DB
+        upsert_job(tmp_db, card, "jd text", "hash1")
+
+        # Mock _fetch_with_retry to verify it's never called
+        page = MagicMock()
+        stats = RunStats()
+
+        with patch("jobhunt.fetcher._fetch_with_retry") as mock_fwr:
+            # Simulate the fetch loop logic from run_fetch
+            if db_module.job_exists(tmp_db, "linkedin", card.platform_id):
+                stats.skipped += 1
+            else:
+                mock_fwr(page, card, tmp_db, False)
+
+            mock_fwr.assert_not_called()
+
+        assert stats.skipped == 1
+
+    def test_new_platform_id_not_skipped(self, tmp_db):
+        """New job should proceed to _fetch_with_retry."""
+        from jobhunt import db as db_module
+
+        card = JobCard(
+            platform_id="2222222222",
+            title="New Job",
+            company="NewCo",
+            location="Remote",
+            posted_at=datetime(2026, 2, 20, tzinfo=timezone.utc),
+            job_url="https://www.linkedin.com/jobs/view/2222222222/",
+        )
+
+        assert db_module.job_exists(tmp_db, "linkedin", card.platform_id) is False

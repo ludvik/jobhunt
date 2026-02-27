@@ -8,14 +8,13 @@ FR-29/30: set_job_status() and append_job_note() for Phase 2a status pipeline.
 
 from __future__ import annotations
 
-import difflib
 import json
 import sqlite3
 import sys
 from pathlib import Path
 
 from jobhunt.models import JobCard, JobNote, JobStatus
-from jobhunt.utils import log_warn, log_error, utcnow_iso
+from jobhunt.utils import log_error, utcnow_iso
 
 # ---------------------------------------------------------------------------
 # Schema (Phase 2a canonical)
@@ -158,6 +157,20 @@ def init_db(db_path: str | Path) -> sqlite3.Connection:
 
 
 # ---------------------------------------------------------------------------
+# Existence check (Issue #17 — skip already-scraped jobs)
+# ---------------------------------------------------------------------------
+
+
+def job_exists(conn: sqlite3.Connection, platform: str, platform_id: str) -> bool:
+    """Return True if a job with this (platform, platform_id) exists in the DB."""
+    row = conn.execute(
+        "SELECT 1 FROM jobs WHERE platform = ? AND platform_id = ? LIMIT 1",
+        (platform, platform_id),
+    ).fetchone()
+    return row is not None
+
+
+# ---------------------------------------------------------------------------
 # Upsert (dedup logic FR-08/09/10)
 # ---------------------------------------------------------------------------
 
@@ -169,76 +182,32 @@ def upsert_job(
     jd_hash: str,
     dry_run: bool = False,
 ) -> tuple[str, bool]:
-    """Upsert a job record using the two-layer dedup strategy.
+    """Insert a job record, skipping if platform_id already exists.
 
     Returns a tuple (result, is_repost) where:
-      result    — one of 'new' | 'updated' | 'skipped' | 'error'
-      is_repost — True if a jd_hash collision was detected on the insert path
+      result    — one of 'new' | 'skipped' | 'error'
+      is_repost — always False (kept for API compatibility)
 
-    FR-08: Branch A — platform_id already exists.
-      A1: jd_hash unchanged  → skip silently.
-      A2: jd_hash changed    → update jd_text, jd_hash, updated_at in place.
+    Branch A — platform_id already exists → skip.
+    Branch B — platform_id not found → INSERT with status='new'.
 
-    FR-09: Branch B — platform_id not found; check jd_hash collision.
-      Collision detected → log warn, proceed with INSERT anyway.
-      No collision       → insert normally.
-
-    FR-10: INSERT new records with status='new'.
     FR-12: In dry_run mode, print JSON to stdout instead of writing to DB.
     """
     try:
         # Branch A: look up by (platform, platform_id)
         row = conn.execute(
-            "SELECT id, jd_hash, jd_text FROM jobs WHERE platform = ? AND platform_id = ?",
+            "SELECT id FROM jobs WHERE platform = ? AND platform_id = ?",
             (card.platform, card.platform_id),
         ).fetchone()
 
         if row is not None:
-            existing_id, existing_hash = row["id"], row["jd_hash"]
-            existing_jd_text = row["jd_text"] or ""
+            return "skipped", False
 
-            if existing_hash == jd_hash:
-                # A1: unchanged — skip
-                return "skipped", False
-
-            # A2: hash differs — check actual text similarity to avoid
-            # false positives from minor rendering differences (Bug #7)
-            similarity = difflib.SequenceMatcher(
-                None, existing_jd_text, jd_text
-            ).ratio()
-            if similarity >= 0.95:
-                # Near-identical text — treat as no meaningful change
-                return "skipped", False
-
-            # Genuine JD change — update in place
-            if not dry_run:
-                conn.execute(
-                    """UPDATE jobs
-                       SET jd_text = ?, jd_hash = ?, updated_at = ?
-                       WHERE id = ?""",
-                    (jd_text, jd_hash, utcnow_iso(), existing_id),
-                )
-                conn.commit()
-            return "updated", False
-
-        # Branch B: not found — check for jd_hash collision (FR-09)
-        collision = conn.execute(
-            "SELECT platform_id FROM jobs WHERE jd_hash = ? LIMIT 1",
-            (jd_hash,),
-        ).fetchone()
-
-        is_repost = collision is not None
-        if is_repost:
-            log_warn(
-                f"[repost?] platform_id={card.platform_id} has same jd_hash "
-                f"as existing platform_id={collision['platform_id']}; inserting anyway."
-            )
-
+        # Branch B: new job — insert directly
         if dry_run:
             _print_dry_run(card, jd_hash)
-            return "new", is_repost
+            return "new", False
 
-        # INSERT new record (FR-10)
         now = utcnow_iso()
         conn.execute(
             """INSERT INTO jobs
@@ -261,7 +230,7 @@ def upsert_job(
             ),
         )
         conn.commit()
-        return "new", is_repost
+        return "new", False
 
     except sqlite3.IntegrityError:
         # UNIQUE constraint violation — race condition or concurrent run; treat as skip

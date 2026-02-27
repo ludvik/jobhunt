@@ -77,10 +77,16 @@ def launch_context(
     try:
         browser = pw.chromium.launch(headless=headless)
 
+        # Large viewport so LinkedIn renders all job cards on the page
+        # (LinkedIn uses "occludable" lazy rendering based on viewport)
+        viewport = {"width": 1920, "height": 8000}
+
         if session_path and os.path.exists(session_path):
-            context = browser.new_context(storage_state=session_path)
+            context = browser.new_context(
+                storage_state=session_path, viewport=viewport
+            )
         else:
-            context = browser.new_context()
+            context = browser.new_context(viewport=viewport)
 
         context.set_default_timeout(8_000)
         context.set_default_navigation_timeout(15_000)
