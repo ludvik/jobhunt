@@ -152,6 +152,31 @@ All prompts live in the workspace (version-controlled):
 
 ---
 
+## Full Pipeline Workflow (Tailor + Apply)
+
+A single subagent can run the complete pipeline for one job: tailor the resume, then apply.
+
+### Trigger
+
+Orchestrator spawns a subagent with:
+```
+task: "Run full pipeline for job <job_id>. Read SKILL.md at ~/.openclaw/workspace/skills/jobhunt/SKILL.md, follow the Full Pipeline Workflow."
+```
+
+### Steps
+
+1. **Read job info**: `cd ~/code/openclaw-tools/jobhunt && uv run jobhunt show <job_id>` → get status, URL, JD
+2. **Check status**:
+   - `new` → proceed to step 3 (Tailor)
+   - `tailored` → skip to step 4 (Apply)
+   - `skipped`/`blocked`/`apply_failed`/`applied` → STOP, report "Job not eligible, status=<status>"
+3. **Tailor** — follow the Tailor Workflow section below (steps 1-11). When done, job status = `tailored`.
+4. **Verify artifacts**: Confirm `~/.openclaw/data/jobhunt/resumes/<job_id>/resume.pdf` exists. If not, try PDF generation. If still missing, proceed with `tailored.md` only.
+5. **Apply** — follow the Apply Workflow section below (steps 1-12).
+6. **Report**: Summarize what happened (tailored? applied? blocked? why?)
+
+---
+
 ## Apply Workflow (Agent-Driven Browser Automation)
 
 Job application is done by a **spawned subagent** using the OpenClaw browser tool. The CLI is not involved in the apply process itself.
