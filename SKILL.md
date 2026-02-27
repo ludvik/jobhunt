@@ -200,9 +200,12 @@ task: "Apply to job <job_id>. Read SKILL.md at ~/.openclaw/workspace/skills/jobh
 3. **Read narrative**: Read `~/.openclaw/data/jobhunt/profile/career-narrative.md` + `values-and-style.md` → for subjective questions
 4. **Read platform knowledge**: Read `~/.openclaw/data/jobhunt/apply-knowledge/platforms/linkedin-easy.md` → past experience
 5. **Open job page**: Use browser tool with `profile="openclaw"` to navigate to the job URL. **Always use profile="openclaw"** (the managed Chromium instance), never profile="chrome" (the Chrome extension relay).
-6. **Check Easy Apply button**:
-   - Found → click it, enter the Easy Apply modal
-   - Not found → run `uv run jobhunt status <id> --set blocked --note "No Easy Apply button, requires external application"` → write log → STOP
+6. **Find the apply path** — adapt to whatever the page offers:
+   - **LinkedIn Easy Apply** → click the Easy Apply button, fill the modal
+   - **"Apply on company website"** → click through to the external site, continue there
+   - **Direct company career page** → navigate and fill their application form
+   - **Any other ATS** (Workday, Greenhouse, Lever, Ashby, etc.) → proceed with their form
+   - The goal is to submit an application regardless of platform. Only STOP if you hit an insurmountable blocker (CAPTCHA, account creation required, etc.)
 7. **Fill form step by step**:
    - Before each step: take a snapshot to read current form fields
    - **Contact info** (name, email, phone): match from `structured.yaml` → `personal.*` fields. LinkedIn usually pre-fills these; verify and correct if needed.
