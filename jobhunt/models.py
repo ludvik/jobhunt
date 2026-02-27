@@ -86,18 +86,6 @@ class TailorMeta:
 
 
 @dataclass
-class TailorResult:
-    """Return value from run_tailor workflow."""
-    success: bool
-    tailored_md: str = ""
-    base: str = ""
-    pdf_ok: bool = False
-    analysis_ok: bool = False
-    dry_run: bool = False
-    error: str = ""
-
-
-@dataclass
 class Credential:
     """1Password credential — never written to disk or logged."""
     username: str
