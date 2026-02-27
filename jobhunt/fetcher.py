@@ -28,7 +28,7 @@ from jobhunt.utils import log_error, log_info, log_warn, parse_iso, parse_relati
 # LinkedIn selectors (verified 2026-02-25 against live LinkedIn DOM — §4.2)
 # ---------------------------------------------------------------------------
 
-_JOB_CARD_SELECTOR = ".job-search-card"
+_JOB_CARD_SELECTOR = "li[data-occludable-job-id]"
 _JOB_ID_PATTERN = re.compile(r"jobPosting:(\d+)")
 _JOB_CARD_FALLBACKS = [
     "li[data-occludable-job-id]",
@@ -314,6 +314,17 @@ def run_fetch(
                     file=sys.stderr,
                 )
                 sys.exit(1)
+
+        # Wait for job cards to render (LinkedIn loads them via JS after DOM ready)
+        try:
+            for sel in [_JOB_CARD_SELECTOR, *_JOB_CARD_FALLBACKS]:
+                try:
+                    page.wait_for_selector(sel, timeout=8000)
+                    break
+                except Exception:
+                    continue
+        except Exception:
+            pass  # scroll_loop will handle empty state
 
         # Collect all cards first so we know the total for verbose progress
         if verbose:
