@@ -39,8 +39,8 @@ _JOB_CARD_FALLBACKS = [
 ]
 
 _MAX_EMPTY_SCROLLS = 8  # consecutive empty scrolls before assuming end-of-feed
-_POLL_INTERVAL_MS = 300  # ms between card-count polls after scroll
-_POLL_TIMEOUT_MS = 2500  # max ms to wait for new cards after scroll
+_POLL_INTERVAL_MS = 500  # ms between card-count polls after scroll
+_POLL_TIMEOUT_MS = 4000  # max ms to wait for new cards after scroll
 
 # Card field selector candidates (for logged-in recommended feed compatibility)
 _JOB_TITLE_SELECTORS = [
@@ -329,6 +329,13 @@ def run_fetch(
 
         try:
             for i, card in enumerate(cards, 1):
+                # Skip if already in DB (platform_id dedup — Issue #17)
+                if db_module.job_exists(conn, "linkedin", card.platform_id):
+                    stats.skipped += 1
+                    if verbose:
+                        _print_verbose_line(i, total, "skipped", False, card)
+                    continue
+
                 result, is_repost = _fetch_with_retry(page, card, conn, dry_run)
 
                 if result == "new":
@@ -463,9 +470,15 @@ def scroll_loop(page, limit: int, lookback_days: int) -> Generator[JobCard, None
             except Exception:
                 continue
 
-        # Scroll to true bottom to trigger lazy-load
-        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        page.wait_for_timeout(600)
+        # Scroll last visible card into view to trigger lazy-load
+        try:
+            last_card = page.locator(primary_selector).last
+            last_card.scroll_into_view_if_needed(timeout=3000)
+        except Exception:
+            # Fallback: try window scroll
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+
+        page.wait_for_timeout(1500)  # give LinkedIn time to load next batch
 
         # Poll for new cards to appear (LinkedIn lazy-load)
         _poll_for_new_cards(page, primary_selector, count_before)
@@ -537,7 +550,6 @@ _RESULT_LABELS = {
 
 _RESULT_ANNOTATIONS = {
     "skipped": "  (duplicate: platform_id)",
-    "updated": "  (JD changed)",
 }
 
 
