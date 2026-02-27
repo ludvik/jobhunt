@@ -38,10 +38,14 @@ _JOB_CARD_FALLBACKS = [
     "li[data-view-name='search-entity-result']",
 ]
 
-_MAX_EMPTY_SCROLLS = 5  # consecutive empty scrolls before assuming end-of-feed
+_MAX_EMPTY_SCROLLS = 8  # consecutive empty scrolls before assuming end-of-feed
+_POLL_INTERVAL_MS = 300  # ms between card-count polls after scroll
+_POLL_TIMEOUT_MS = 2500  # max ms to wait for new cards after scroll
 
 # Card field selector candidates (for logged-in recommended feed compatibility)
 _JOB_TITLE_SELECTORS = [
+    "a.job-card-list__title--link",
+    "a.job-card-container__link",
     ".base-search-card__title",
     "h3",
     "h4",
@@ -70,6 +74,45 @@ _JOB_LOCATION_SELECTORS = [
 # ---------------------------------------------------------------------------
 # utility helpers for resilient extraction
 # ---------------------------------------------------------------------------
+
+def clean_title(text: str) -> str:
+    """Clean a job title by removing verification badge text and deduplication.
+
+    Handles LinkedIn DOM quirk where inner_text() on a container element
+    returns the visible title concatenated with aria/span text, e.g.
+    'Senior Engineer Senior Engineer' or 'Senior Engineer with verification'.
+    """
+    # Strip verification badge suffixes (case-insensitive)
+    text = re.sub(r"\s+with verification\s*$", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+verification badge\s*$", "", text, flags=re.IGNORECASE)
+
+    # Deduplicate: if word list has even length and first half == second half
+    words = text.split()
+    if len(words) >= 2 and len(words) % 2 == 0:
+        mid = len(words) // 2
+        if words[:mid] == words[mid:]:
+            text = " ".join(words[:mid])
+
+    return text.strip()
+
+
+def _poll_for_new_cards(page, selector: str, count_before: int) -> bool:
+    """Poll for new cards to appear after a scroll, up to _POLL_TIMEOUT_MS.
+
+    Returns True if new cards appeared, False if timeout reached.
+    """
+    elapsed = 0
+    while elapsed < _POLL_TIMEOUT_MS:
+        page.wait_for_timeout(_POLL_INTERVAL_MS)
+        elapsed += _POLL_INTERVAL_MS
+        try:
+            count_now = page.locator(selector).count()
+            if isinstance(count_now, int) and count_now > count_before:
+                return True
+        except Exception:
+            continue
+    return False
+
 
 def _locator_first(locator):
     """Return `.first` if it exists, else the locator itself."""
@@ -363,10 +406,10 @@ def scroll_loop(page, limit: int, lookback_days: int) -> Generator[JobCard, None
             else:
                 all_too_old = False
 
-            title = _first_text(
+            title = clean_title(_first_text(
                 el,
                 _JOB_TITLE_SELECTORS,
-            )
+            ))
             company = _first_text(
                 el,
                 _JOB_COMPANY_SELECTORS,
@@ -407,9 +450,25 @@ def scroll_loop(page, limit: int, lookback_days: int) -> Generator[JobCard, None
         if all_too_old and new_this_scroll > 0:
             return
 
-        # Scroll down to trigger lazy-load
-        page.evaluate("window.scrollBy(0, window.innerHeight * 2)")
+        # Record card count before scroll for polling
+        count_before = 0
+        primary_selector = _JOB_CARD_SELECTOR
+        for sel in [_JOB_CARD_SELECTOR, *_JOB_CARD_FALLBACKS]:
+            try:
+                n = page.locator(sel).count()
+                if isinstance(n, int) and n > 0:
+                    count_before = n
+                    primary_selector = sel
+                    break
+            except Exception:
+                continue
+
+        # Scroll to true bottom to trigger lazy-load
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
         page.wait_for_timeout(600)
+
+        # Poll for new cards to appear (LinkedIn lazy-load)
+        _poll_for_new_cards(page, primary_selector, count_before)
 
 
 # ---------------------------------------------------------------------------
