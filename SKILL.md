@@ -393,7 +393,13 @@ Notes: <any issues or observations>
 Be verbose. The log should allow someone running `tail -f` to see exactly what the agent is doing in real time.
 
 11. **Update status**: Run `uv run jobhunt status <id> --set <status> --note "<note>"`
-12. **Update knowledge base**: Append any new findings to `~/.openclaw/data/jobhunt/apply-knowledge/platforms/linkedin-easy.md`:
+12. **Clean up browser tabs**: After each job is done (applied, blocked, or failed), close ALL open tabs to free resources:
+    ```
+    browser(action="tabs", profile="openclaw", target="host")
+    ```
+    Then for each tab: `browser(action="close", profile="openclaw", target="host", targetId="<id>")`
+    This prevents tab accumulation when running multiple jobs in sequence.
+13. **Update knowledge base**: Append any new findings to `~/.openclaw/data/jobhunt/apply-knowledge/platforms/linkedin-easy.md`:
     - New question types encountered
     - Form structure changes
     - Strategies that worked or failed
