@@ -1,0 +1,4 @@
+# Per-role overrides for the tailor agent
+# Merged on top of global config.yaml pipeline section
+tailor_timeout: 600
+thinking_level: "low"

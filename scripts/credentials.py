@@ -13,8 +13,8 @@ import shutil
 import subprocess
 import sys
 
-from jobhunt.models import Credential
-from jobhunt.utils import log_warn, log_error
+from scripts.models import Credential
+from scripts.utils import log_warn, log_error
 
 
 # ---------------------------------------------------------------------------

@@ -1,35 +1,19 @@
 #!/usr/bin/env bash
-# install.sh — set up the jobhunt tool
-# Usage: bash install.sh
-
 set -euo pipefail
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SKILL_DIR="$(cd "$(dirname "$0")" && pwd)"
 DATA_DIR="${HOME}/.openclaw/data/jobhunt"
-SKILLS_DIR="${HOME}/.openclaw/workspace/skills/jobhunt"
 
-echo "==> Installing jobhunt dependencies..."
-cd "${SCRIPT_DIR}"
+# Create data dirs
+mkdir -p "$DATA_DIR"/{resumes,profile,session,logs,apply-log}
+mkdir -p "$DATA_DIR"/agents/{tailor,apply}
+
+# Install Python deps
+cd "$SKILL_DIR"
 uv sync
 
-echo "==> Installing Playwright Chromium..."
+# Install Playwright browsers
 uv run playwright install chromium
 
-echo "==> Creating data directories..."
-mkdir -p "${DATA_DIR}/session"
-mkdir -p "${DATA_DIR}/resumes"
-mkdir -p "${DATA_DIR}/apply-log"
-mkdir -p "${DATA_DIR}/apply-knowledge/platforms"
-mkdir -p "${DATA_DIR}/profile"
-
-echo "==> Installing SKILL.md..."
-mkdir -p "${SKILLS_DIR}"
-cp "${SCRIPT_DIR}/SKILL.md" "${SKILLS_DIR}/SKILL.md"
-echo "    SKILL.md → ${SKILLS_DIR}/SKILL.md"
-
-echo ""
-echo "✓ jobhunt installed."
-echo ""
-echo "  Run:  uv run jobhunt --help"
-echo "  Auth: uv run jobhunt auth"
-echo "  Tip:  Add 'alias jobhunt=\"uv run jobhunt\"' to your shell profile."
+echo "jobhunt installed."
+echo "Run: uv run --directory $SKILL_DIR python scripts/pipeline.py --help"
+echo "Or:  uv run --directory $SKILL_DIR python scripts/cli.py --help"

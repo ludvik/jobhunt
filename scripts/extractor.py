@@ -11,8 +11,8 @@ import json
 import re
 from html.parser import HTMLParser
 
-from jobhunt.models import ExtractionError
-from jobhunt.utils import log_warn
+from scripts.models import ExtractionError
+from scripts.utils import log_warn
 
 # ---------------------------------------------------------------------------
 # Verified selectors (updated for LinkedIn DOM drift)

@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from jobhunt.db import get_job, init_db, job_exists, query_jobs, upsert_job
-from jobhunt.models import JobCard
-from jobhunt.utils import utcnow_iso
+from scripts.db import get_job, init_db, job_exists, query_jobs, upsert_job
+from scripts.models import JobCard
+from scripts.utils import utcnow_iso
 
 
 # ---------------------------------------------------------------------------

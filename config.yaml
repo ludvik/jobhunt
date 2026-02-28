@@ -1,0 +1,16 @@
+# jobhunt/config.yaml — skill-dir defaults
+# User overrides: ~/.openclaw/data/jobhunt/config.yaml (same schema, partial allowed)
+
+pipeline:
+  limit: 10                   # max jobs to process per pipeline run
+  tailor_timeout: 600         # seconds for openclaw agent tailor call
+  apply_timeout: 1200         # seconds for openclaw agent apply call
+  thinking_level: "low"       # off | minimal | low | medium | high
+
+fetch:
+  limit: 30                   # --limit passed to fetcher
+  lookback: 14                # --lookback days
+
+logging:
+  level: "INFO"               # DEBUG | INFO | WARN | ERROR
+  log_file: null              # null = use default ~/.openclaw/data/jobhunt/logs/pipeline.log

@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from jobhunt.extractor import compute_hash, extract_jd, strip_html
-from jobhunt.models import ExtractionError
+from scripts.extractor import compute_hash, extract_jd, strip_html
+from scripts.models import ExtractionError
 
 
 # ---------------------------------------------------------------------------

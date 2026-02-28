@@ -18,11 +18,11 @@ from typing import Generator
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from jobhunt import auth, browser, extractor
-from jobhunt import db as db_module
-from jobhunt.config import DB_PATH, SESSION_PATH
-from jobhunt.models import ExtractionError, JobCard, RunStats
-from jobhunt.utils import log_error, log_info, log_warn, parse_iso, parse_relative_date
+from scripts import auth, browser, extractor
+from scripts import db as db_module
+from scripts.config import DB_PATH, SESSION_PATH
+from scripts.models import ExtractionError, JobCard, RunStats
+from scripts.utils import log_error, log_info, log_warn, parse_iso, parse_relative_date
 
 # ---------------------------------------------------------------------------
 # LinkedIn selectors (verified 2026-02-25 against live LinkedIn DOM — §4.2)

@@ -10,9 +10,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from jobhunt.cli import main
-from jobhunt.db import init_db, upsert_job
-from jobhunt.models import JobCard
+from scripts.cli import main
+from scripts.db import init_db, upsert_job
+from scripts.models import JobCard
 from datetime import datetime, timezone
 
 
@@ -65,12 +65,12 @@ class TestHelpAndVersion:
 class TestConfigCommand:
     def test_show(self, tmp_path):
         config_path = tmp_path / "config.json"
-        db_path = tmp_path / "jobhunt.db"
+        db_path = tmp_path / "scripts.db"
 
         with (
-            patch("jobhunt.config.CONFIG_PATH", config_path),
-            patch("jobhunt.config.DATA_DIR", tmp_path),
-            patch("jobhunt.config.DB_PATH", db_path),
+            patch("scripts.config.CONFIG_PATH", config_path),
+            patch("scripts.config.DATA_DIR", tmp_path),
+            patch("scripts.config.DB_PATH", db_path),
         ):
             runner = CliRunner()
             result = runner.invoke(main, ["config", "--show"])
@@ -82,12 +82,12 @@ class TestConfigCommand:
 
     def test_set_pref(self, tmp_path):
         config_path = tmp_path / "config.json"
-        db_path = tmp_path / "jobhunt.db"
+        db_path = tmp_path / "scripts.db"
 
         with (
-            patch("jobhunt.config.CONFIG_PATH", config_path),
-            patch("jobhunt.config.DATA_DIR", tmp_path),
-            patch("jobhunt.config.DB_PATH", db_path),
+            patch("scripts.config.CONFIG_PATH", config_path),
+            patch("scripts.config.DATA_DIR", tmp_path),
+            patch("scripts.config.DB_PATH", db_path),
         ):
             runner = CliRunner()
             result = runner.invoke(main, ["config", "--set-pref", "new@example.com"])
@@ -107,14 +107,14 @@ class TestConfigCommand:
 
 class TestListCommand:
     def test_no_jobs_found(self, tmp_path):
-        db_path = tmp_path / "jobhunt.db"
+        db_path = tmp_path / "scripts.db"
         config_path = tmp_path / "config.json"
 
         with (
-            patch("jobhunt.config.CONFIG_PATH", config_path),
-            patch("jobhunt.config.DATA_DIR", tmp_path),
-            patch("jobhunt.config.DB_PATH", db_path),
-            patch("jobhunt.cli._db_path", return_value=db_path),
+            patch("scripts.config.CONFIG_PATH", config_path),
+            patch("scripts.config.DATA_DIR", tmp_path),
+            patch("scripts.config.DB_PATH", db_path),
+            patch("scripts.cli._db_path", return_value=db_path),
         ):
             runner = CliRunner()
             result = runner.invoke(main, ["list"])
@@ -123,17 +123,17 @@ class TestListCommand:
         assert "No jobs found" in result.output
 
     def test_list_with_jobs(self, tmp_path):
-        db_path = tmp_path / "jobhunt.db"
+        db_path = tmp_path / "scripts.db"
         config_path = tmp_path / "config.json"
         conn = init_db(db_path)
         _seed_job(conn)
         conn.close()
 
         with (
-            patch("jobhunt.config.CONFIG_PATH", config_path),
-            patch("jobhunt.config.DATA_DIR", tmp_path),
-            patch("jobhunt.config.DB_PATH", db_path),
-            patch("jobhunt.cli._db_path", return_value=db_path),
+            patch("scripts.config.CONFIG_PATH", config_path),
+            patch("scripts.config.DATA_DIR", tmp_path),
+            patch("scripts.config.DB_PATH", db_path),
+            patch("scripts.cli._db_path", return_value=db_path),
         ):
             runner = CliRunner()
             result = runner.invoke(main, ["list"])
@@ -142,17 +142,17 @@ class TestListCommand:
         assert "Stripe" in result.output
 
     def test_list_json_output(self, tmp_path):
-        db_path = tmp_path / "jobhunt.db"
+        db_path = tmp_path / "scripts.db"
         config_path = tmp_path / "config.json"
         conn = init_db(db_path)
         _seed_job(conn)
         conn.close()
 
         with (
-            patch("jobhunt.config.CONFIG_PATH", config_path),
-            patch("jobhunt.config.DATA_DIR", tmp_path),
-            patch("jobhunt.config.DB_PATH", db_path),
-            patch("jobhunt.cli._db_path", return_value=db_path),
+            patch("scripts.config.CONFIG_PATH", config_path),
+            patch("scripts.config.DATA_DIR", tmp_path),
+            patch("scripts.config.DB_PATH", db_path),
+            patch("scripts.cli._db_path", return_value=db_path),
         ):
             runner = CliRunner()
             result = runner.invoke(main, ["list", "--json"])
@@ -166,7 +166,7 @@ class TestListCommand:
         assert data[0]["company"] == "Stripe"
 
     def test_list_status_filter(self, tmp_path):
-        db_path = tmp_path / "jobhunt.db"
+        db_path = tmp_path / "scripts.db"
         config_path = tmp_path / "config.json"
         conn = init_db(db_path)
         _seed_job(conn, "111")
@@ -174,10 +174,10 @@ class TestListCommand:
         conn.close()
 
         with (
-            patch("jobhunt.config.CONFIG_PATH", config_path),
-            patch("jobhunt.config.DATA_DIR", tmp_path),
-            patch("jobhunt.config.DB_PATH", db_path),
-            patch("jobhunt.cli._db_path", return_value=db_path),
+            patch("scripts.config.CONFIG_PATH", config_path),
+            patch("scripts.config.DATA_DIR", tmp_path),
+            patch("scripts.config.DB_PATH", db_path),
+            patch("scripts.cli._db_path", return_value=db_path),
         ):
             runner = CliRunner()
             result = runner.invoke(main, ["list", "--status", "new", "--json"])
@@ -194,17 +194,17 @@ class TestListCommand:
 
 class TestShowCommand:
     def test_show_existing_job(self, tmp_path):
-        db_path = tmp_path / "jobhunt.db"
+        db_path = tmp_path / "scripts.db"
         config_path = tmp_path / "config.json"
         conn = init_db(db_path)
         job_id = _seed_job(conn)
         conn.close()
 
         with (
-            patch("jobhunt.config.CONFIG_PATH", config_path),
-            patch("jobhunt.config.DATA_DIR", tmp_path),
-            patch("jobhunt.config.DB_PATH", db_path),
-            patch("jobhunt.cli._db_path", return_value=db_path),
+            patch("scripts.config.CONFIG_PATH", config_path),
+            patch("scripts.config.DATA_DIR", tmp_path),
+            patch("scripts.config.DB_PATH", db_path),
+            patch("scripts.cli._db_path", return_value=db_path),
         ):
             runner = CliRunner()
             result = runner.invoke(main, ["show", str(job_id)])
@@ -215,14 +215,14 @@ class TestShowCommand:
         assert "JD Hash:" in result.output
 
     def test_show_nonexistent_job(self, tmp_path):
-        db_path = tmp_path / "jobhunt.db"
+        db_path = tmp_path / "scripts.db"
         config_path = tmp_path / "config.json"
 
         with (
-            patch("jobhunt.config.CONFIG_PATH", config_path),
-            patch("jobhunt.config.DATA_DIR", tmp_path),
-            patch("jobhunt.config.DB_PATH", db_path),
-            patch("jobhunt.cli._db_path", return_value=db_path),
+            patch("scripts.config.CONFIG_PATH", config_path),
+            patch("scripts.config.DATA_DIR", tmp_path),
+            patch("scripts.config.DB_PATH", db_path),
+            patch("scripts.cli._db_path", return_value=db_path),
         ):
             runner = CliRunner()
             result = runner.invoke(main, ["show", "99999"])
@@ -247,11 +247,11 @@ class TestAuthCommand:
         session_path = tmp_path / "linkedin.json"
 
         with (
-            patch("jobhunt.config.CONFIG_PATH", config_path),
-            patch("jobhunt.config.DATA_DIR", tmp_path),
-            patch("jobhunt.config.SESSION_PATH", session_path),
-            patch("jobhunt.config.SESSION_DIR", tmp_path),
-            patch("jobhunt.auth.run_auth", return_value=True),
+            patch("scripts.config.CONFIG_PATH", config_path),
+            patch("scripts.config.DATA_DIR", tmp_path),
+            patch("scripts.config.SESSION_PATH", session_path),
+            patch("scripts.config.SESSION_DIR", tmp_path),
+            patch("scripts.auth.run_auth", return_value=True),
         ):
             runner = CliRunner()
             result = runner.invoke(main, ["auth"])
@@ -262,9 +262,9 @@ class TestAuthCommand:
         config_path = tmp_path / "config.json"
 
         with (
-            patch("jobhunt.config.CONFIG_PATH", config_path),
-            patch("jobhunt.config.DATA_DIR", tmp_path),
-            patch("jobhunt.auth.run_auth", return_value=False),
+            patch("scripts.config.CONFIG_PATH", config_path),
+            patch("scripts.config.DATA_DIR", tmp_path),
+            patch("scripts.auth.run_auth", return_value=False),
         ):
             runner = CliRunner()
             result = runner.invoke(main, ["auth"])
@@ -279,21 +279,21 @@ class TestAuthCommand:
 
 class TestFetchCommand:
     def test_fetch_dry_run_no_db_write(self, tmp_path):
-        db_path = tmp_path / "jobhunt.db"
+        db_path = tmp_path / "scripts.db"
         config_path = tmp_path / "config.json"
         session_path = tmp_path / "session" / "linkedin.json"
         session_path.parent.mkdir(parents=True)
         session_path.write_text("{}")
 
         with (
-            patch("jobhunt.config.CONFIG_PATH", config_path),
-            patch("jobhunt.config.DATA_DIR", tmp_path),
-            patch("jobhunt.config.DB_PATH", db_path),
-            patch("jobhunt.config.SESSION_PATH", session_path),
-            patch("jobhunt.config.SESSION_DIR", session_path.parent),
-            patch("jobhunt.cli._db_path", return_value=db_path),
-            patch("jobhunt.auth.ensure_session"),
-            patch("jobhunt.fetcher.run_fetch"),
+            patch("scripts.config.CONFIG_PATH", config_path),
+            patch("scripts.config.DATA_DIR", tmp_path),
+            patch("scripts.config.DB_PATH", db_path),
+            patch("scripts.config.SESSION_PATH", session_path),
+            patch("scripts.config.SESSION_DIR", session_path.parent),
+            patch("scripts.cli._db_path", return_value=db_path),
+            patch("scripts.auth.ensure_session"),
+            patch("scripts.fetcher.run_fetch"),
         ):
             runner = CliRunner()
             result = runner.invoke(main, ["fetch", "--dry-run", "--limit", "5"])

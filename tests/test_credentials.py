@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from jobhunt.credentials import (
+from scripts.credentials import (
     _get_field_value,
     _item_matches_domain,
     op_available,
@@ -16,7 +16,7 @@ from jobhunt.credentials import (
     read_keychain,
     resolve_credential,
 )
-from jobhunt.models import Credential
+from scripts.models import Credential
 
 
 # ---------------------------------------------------------------------------
@@ -139,7 +139,7 @@ class TestRankByPreferredEmails:
             }
             return mapping.get(item_id)
 
-        with patch("jobhunt.credentials.op_get_item", side_effect=mock_op_get):
+        with patch("scripts.credentials.op_get_item", side_effect=mock_op_get):
             ranked = rank_by_preferred_emails(items, preferred_emails)
 
         assert ranked[0]["id"] == "uuid-hotmail"
@@ -158,7 +158,7 @@ class TestRankByPreferredEmails:
             }
             return mapping.get(item_id)
 
-        with patch("jobhunt.credentials.op_get_item", side_effect=mock_op_get):
+        with patch("scripts.credentials.op_get_item", side_effect=mock_op_get):
             ranked = rank_by_preferred_emails(items, preferred_emails)
 
         assert ranked[0]["id"] == "uuid-hotmail"
@@ -166,7 +166,7 @@ class TestRankByPreferredEmails:
     def test_op_get_failure_treated_as_unpreferred(self, preferred_emails):
         items = [{"id": "uuid-hotmail"}, {"id": "uuid-gmail"}]
 
-        with patch("jobhunt.credentials.op_get_item", return_value=None):
+        with patch("scripts.credentials.op_get_item", return_value=None):
             # Should not raise; unresolvable items go to end
             ranked = rank_by_preferred_emails(items, preferred_emails)
         assert len(ranked) == 2
@@ -179,7 +179,7 @@ class TestRankByPreferredEmails:
 
 class TestResolveCredential:
     def test_uses_keychain_when_available(self):
-        with patch("jobhunt.credentials.read_keychain", return_value={"username": "u", "password": "p"}):
+        with patch("scripts.credentials.read_keychain", return_value={"username": "u", "password": "p"}):
             cred = resolve_credential("linkedin.com", [])
         assert isinstance(cred, Credential)
         assert cred.username == "u"
@@ -187,8 +187,8 @@ class TestResolveCredential:
 
     def test_falls_back_to_1password_when_keychain_empty(self, capsys):
         with (
-            patch("jobhunt.credentials.read_keychain", return_value=None),
-            patch("jobhunt.credentials.op_available", return_value=False),
+            patch("scripts.credentials.read_keychain", return_value=None),
+            patch("scripts.credentials.op_available", return_value=False),
         ):
             result = resolve_credential("linkedin.com", [])
         assert result is None
@@ -197,9 +197,9 @@ class TestResolveCredential:
 
     def test_returns_none_when_op_list_fails(self, capsys):
         with (
-            patch("jobhunt.credentials.read_keychain", return_value=None),
-            patch("jobhunt.credentials.op_available", return_value=True),
-            patch("jobhunt.credentials.op_list_items", return_value=None),
+            patch("scripts.credentials.read_keychain", return_value=None),
+            patch("scripts.credentials.op_available", return_value=True),
+            patch("scripts.credentials.op_list_items", return_value=None),
         ):
             result = resolve_credential("linkedin.com", [])
         assert result is None
@@ -207,9 +207,9 @@ class TestResolveCredential:
     def test_returns_none_when_no_matching_items(self, capsys, op_item_list_output):
         all_items = json.loads(op_item_list_output)
         with (
-            patch("jobhunt.credentials.read_keychain", return_value=None),
-            patch("jobhunt.credentials.op_available", return_value=True),
-            patch("jobhunt.credentials.op_list_items", return_value=all_items),
+            patch("scripts.credentials.read_keychain", return_value=None),
+            patch("scripts.credentials.op_available", return_value=True),
+            patch("scripts.credentials.op_list_items", return_value=all_items),
         ):
             result = resolve_credential("example.com", [])
         assert result is None
@@ -232,10 +232,10 @@ class TestResolveCredential:
             return None
 
         with (
-            patch("jobhunt.credentials.read_keychain", return_value=None),
-            patch("jobhunt.credentials.op_available", return_value=True),
-            patch("jobhunt.credentials.op_list_items", return_value=all_items),
-            patch("jobhunt.credentials.op_get_item", side_effect=mock_op_get),
+            patch("scripts.credentials.read_keychain", return_value=None),
+            patch("scripts.credentials.op_available", return_value=True),
+            patch("scripts.credentials.op_list_items", return_value=all_items),
+            patch("scripts.credentials.op_get_item", side_effect=mock_op_get),
         ):
             cred = resolve_credential("linkedin.com", preferred_emails)
 

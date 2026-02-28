@@ -1,3 +1,12 @@
+---
+name: jobhunt
+description: >
+  Automated job-hunt pipeline for macOS. Fetches LinkedIn job postings, tailors resumes
+  using AI, and submits applications via browser automation. Runs on a cron schedule.
+  Commands: pipeline, fetch, list, show, status, auth. Use when asked to run the job
+  pipeline, check job status, tailor a resume for a job, or apply to jobs automatically.
+---
+
 # SKILL.md — jobhunt
 
 ## What this tool does
@@ -119,14 +128,14 @@ Resume tailoring is done by the agent, NOT the CLI. The CLI provides data; the a
 **Log ALL steps to `~/.openclaw/data/jobhunt/pipeline-run.log`** (append, timestamped). Every step below must have a log entry so `tail -f` shows full progress.
 
 1. **Read the JD**: `jobhunt show <job_id>` — get JD text from the `--- JD ---` section
-2. **Read the classify prompt**: `~/.openclaw/workspace/tool-dev/jobhunt/prompts/classify.md`
+2. **Read the classify prompt**: `{baseDir}/references/prompts/classify.md`
 3. **Classify**: Send JD + classify prompt → get base direction (`ai`/`ic`/`mgmt`/`venture`)
 4. **Read base resume**: `~/code/openclaw-tools/resume-factory/src/base-resume-<direction>.md`
    - `ai` → `base-cv-ai-engineer.md`
    - `ic` → `base-resume-ic.md`
    - `mgmt` → `base-resume-mgmt.md`
    - `venture` → `base-resume-venture-builder.md`
-5. **Read the tailor prompt**: `~/.openclaw/workspace/tool-dev/jobhunt/prompts/tailor.md`
+5. **Read the tailor prompt**: `{baseDir}/references/prompts/tailor.md`
 6. **Tailor**: Send JD + base resume + tailor prompt → get tailored resume markdown
 7. **Write output**: Save to `~/.openclaw/data/jobhunt/resumes/<job_id>/tailored.md`
 8. **Optional — Analyze**: Read `prompts/analyze.md`, send JD + tailored resume → save to `resumes/<job_id>/analysis.md`
@@ -137,9 +146,9 @@ Resume tailoring is done by the agent, NOT the CLI. The CLI provides data; the a
 ### Prompt Templates
 
 All prompts live in the workspace (version-controlled):
-- `~/.openclaw/workspace/tool-dev/jobhunt/prompts/classify.md`
-- `~/.openclaw/workspace/tool-dev/jobhunt/prompts/tailor.md`
-- `~/.openclaw/workspace/tool-dev/jobhunt/prompts/analyze.md`
+- `{baseDir}/references/prompts/classify.md`
+- `{baseDir}/references/prompts/tailor.md`
+- `{baseDir}/references/prompts/analyze.md`
 
 ### meta.json Format
 
@@ -164,7 +173,7 @@ A single subagent can run the complete pipeline for one job: tailor the resume, 
 
 For one job:
 
-1. **Read job info**: `cd ~/code/openclaw-tools/jobhunt && uv run jobhunt show <job_id>` → get status, URL, JD
+1. **Read job info**: `cd ~/code/openclaw-tools/jobhunt && uv run --directory {baseDir} python scripts/cli.py show <job_id>` → get status, URL, JD
 2. **Check status**:
    - `new` → proceed to step 3 (Tailor)
    - `tailored` → proceed to step 4 (Verify artifacts)
@@ -208,7 +217,7 @@ echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Job <id>: <description>" >> ~/.openclaw/d
 - Gmail verification: `gog gmail messages search "from:<domain> newer_than:1h" --max 5 --account haomin.liu@gmail.com` then `gog gmail get <id> --account haomin.liu@gmail.com --plain`
 - Base resumes: ~/code/openclaw-tools/resume-factory/src/
 - Tailor prompts: ~/.openclaw/workspace/tool-dev/jobhunt/prompts/
-- Status updates: `cd ~/code/openclaw-tools/jobhunt && uv run jobhunt status <id> --set <status>`
+- Status updates: `cd ~/code/openclaw-tools/jobhunt && uv run --directory {baseDir} python scripts/cli.py status <id> --set <status>`
 - Platform knowledge: ~/.openclaw/data/jobhunt/apply-knowledge/platforms/
 - NEVER run `openclaw gateway restart`
 
@@ -232,7 +241,7 @@ task: "Apply to job <job_id>. Read SKILL.md at ~/.openclaw/workspace/skills/jobh
 
 ### Step-by-step
 
-1. **Read job info**: Run `cd ~/code/openclaw-tools/jobhunt && uv run jobhunt show <job_id>` → extract URL, company, title, JD text
+1. **Read job info**: Run `cd ~/code/openclaw-tools/jobhunt && uv run --directory {baseDir} python scripts/cli.py show <job_id>` → extract URL, company, title, JD text
 2. **Read profile**: Read `~/.openclaw/data/jobhunt/profile/structured.yaml` → form fill data
 3. **Read narrative**: Read `~/.openclaw/data/jobhunt/profile/career-narrative.md` + `values-and-style.md` → for subjective questions
 4. **Read platform knowledge**: Read `~/.openclaw/data/jobhunt/apply-knowledge/platforms/linkedin-easy.md` → past experience
@@ -429,7 +438,7 @@ Notes: <any issues or observations>
 
 Be verbose. The log should allow someone running `tail -f` to see exactly what the agent is doing in real time.
 
-11. **Update status**: Run `uv run jobhunt status <id> --set <status> --note "<note>"`
+11. **Update status**: Run `uv run --directory {baseDir} python scripts/cli.py status <id> --set <status> --note "<note>"`
 12. **Clean up browser tabs**: After each job is done (applied, blocked, or failed), close ALL open tabs to free resources:
     ```
     browser(action="tabs", profile="openclaw", target="host")
