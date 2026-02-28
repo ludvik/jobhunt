@@ -280,11 +280,7 @@ def set_job_status(
             raise LookupError(f"job {job_id} not found")
         current_status = job["status"]
 
-    allowed = ALLOWED_TRANSITIONS.get(current_status, [])
-    if new_status not in allowed:
-        raise ValueError(
-            f"Invalid transition: {current_status} -> {new_status}"
-        )
+    # Status transitions are no longer enforced — any transition is allowed.
 
     now = utcnow_iso()
     conn.execute(
