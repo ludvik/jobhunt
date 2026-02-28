@@ -240,7 +240,7 @@ Greenhouse uses custom JS dropdown components, NOT standard HTML `<select>`. Arr
 5. **Snapshot** again to verify the value was set
 6. If the dropdown doesn't appear, try clicking the small arrow/chevron icon next to the field
 
-Do NOT try to set all fields at once. Fill ONE field → verify → move to next.
+Fill fields in batches: snapshot once to read all visible fields, fill 3-5 simple fields (text inputs, dropdowns) in sequence, then snapshot to verify. Only do one-at-a-time for complex interactions (file uploads, comboboxes with search).
 
 ### Form Filling Strategy
 
@@ -318,7 +318,8 @@ When you create a new account or use a password during apply:
 4. Log the credential save in the apply log (but NOT the actual password)
 5. The `-U` flag updates existing entries if they already exist
 7. **Fill form step by step**:
-   - Before each step: take a snapshot to read current form fields
+   - **Speed matters**: minimize unnecessary snapshots. Take ONE snapshot to read all visible fields, then fill multiple fields before snapshotting again. Only snapshot again when you need to see new/changed content (e.g., after page navigation, after clicking "Next", or when fields are dynamically loaded).
+   - Do NOT snapshot after every single field fill — batch your actions.
    - **Contact info** (name, email, phone): match from `structured.yaml` → `personal.*` fields. LinkedIn usually pre-fills these; verify and correct if needed.
    - **Resume upload**: ALWAYS upload the job-specific resume from `~/.openclaw/data/jobhunt/resumes/<job_id>/resume.pdf` (or `tailored.md` if no PDF). Even if the platform already has a previously uploaded resume, DELETE or REPLACE it with the tailored version for THIS job. Every application must use its own tailored resume — never reuse a previous upload.
    - **Cover letter** (if upload option exists): upload `resumes/<job_id>/cover-letter.pdf` if it exists
