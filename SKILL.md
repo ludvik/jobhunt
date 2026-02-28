@@ -221,9 +221,12 @@ task: "Apply to job <job_id>. Read SKILL.md at ~/.openclaw/workspace/skills/jobh
 Browser upload paths are sandboxed. Before uploading:
 1. **Generate PDF first** (if not already done):
    ```bash
-   pandoc ~/.openclaw/data/jobhunt/resumes/<job_id>/tailored.md -o /tmp/openclaw/uploads/Haomin-Liu-Resume.pdf --pdf-engine=tectonic
+   cd ~/code/openclaw-tools/resume-factory && python3 generate_pdf.py \
+     --src ~/.openclaw/data/jobhunt/resumes/<job_id>/tailored.md \
+     --out /tmp/openclaw/uploads/Haomin-Liu-Resume.pdf
    ```
    File name MUST be `Haomin-Liu-Resume.pdf` (professional, uses applicant's real name).
+   Note: If xelatex is not installed, the script may fail. Fallback: `pandoc <src> -o <out> --pdf-engine=tectonic -V mainfont=Palatino -V geometry:margin=0.7in -V pagestyle=empty`
 2. Arm the upload BEFORE clicking the upload button: `browser(action="upload", profile="openclaw", target="host", paths=["/tmp/openclaw/uploads/Haomin-Liu-Resume.pdf"])`
 3. Then click the upload button — the file chooser will auto-resolve
 
