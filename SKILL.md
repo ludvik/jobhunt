@@ -233,14 +233,13 @@ Browser upload paths are sandboxed. Before uploading:
 ### Greenhouse Custom Selects / Comboboxes
 
 Greenhouse uses custom JS dropdown components, NOT standard HTML `<select>`. ArrowDown+Enter often fails. Correct approach:
-1. **Click** the combobox/input field to open the dropdown
-2. **Type** the desired value (e.g., "Yes", "No", "United States") to filter options  
-3. **Snapshot** to see the filtered dropdown options
-4. **Click** the matching option from the dropdown list
-5. **Snapshot** again to verify the value was set
-6. If the dropdown doesn't appear, try clicking the small arrow/chevron icon next to the field
+**For `<select>` dropdowns**: Use `browser act` with `kind: "select"` and `values: ["option_value"]`. This is instant — no click+snapshot cycle needed.
 
-Fill fields in batches: snapshot once to read all visible fields, fill 3-5 simple fields (text inputs, dropdowns) in sequence, then snapshot to verify. Only do one-at-a-time for complex interactions (file uploads, comboboxes with search).
+**For combobox (text input + dropdown list)**: 
+1. Click the input → type value → click matching option. Do NOT snapshot between these — just act sequentially.
+2. Only snapshot if the first attempt fails.
+
+**Batch execution principle**: After ONE snapshot, plan ALL field actions for the visible form, then execute them in rapid sequence WITHOUT intermediate snapshots. Only snapshot again after completing the batch or when navigating to a new page/step.
 
 ### Form Filling Strategy
 
@@ -317,10 +316,23 @@ When you create a new account or use a password during apply:
 3. Service name convention: `jobhunt:<domain>` (e.g., `jobhunt:myworkdaysite.com`, `jobhunt:greenhouse.io`)
 4. Log the credential save in the apply log (but NOT the actual password)
 5. The `-U` flag updates existing entries if they already exist
-7. **Fill form step by step**:
-   - **Speed matters**: minimize unnecessary snapshots. Take ONE snapshot to read all visible fields, then fill multiple fields before snapshotting again. Only snapshot again when you need to see new/changed content (e.g., after page navigation, after clicking "Next", or when fields are dynamically loaded).
-   - Do NOT snapshot after every single field fill — batch your actions.
-   - **Contact info** (name, email, phone): match from `structured.yaml` → `personal.*` fields. LinkedIn usually pre-fills these; verify and correct if needed.
+7. **Fill form — BATCH strategy (critical for speed)**:
+   
+   **The #1 rule: minimize LLM round trips.** Each snapshot + action = ~25s. A 10-field form should take 2-3 snapshots, not 10.
+   
+   **Workflow per form page:**
+   1. Take ONE snapshot → read ALL visible fields
+   2. Plan all actions: which fields need filling, what values, which refs
+   3. Execute ALL text fills in rapid sequence (no snapshots between them)
+   4. Execute ALL select/dropdown fills in sequence (use `kind: "select"` for `<select>` elements)
+   5. For comboboxes: click → type → click option (3 actions, no snapshot needed between them)
+   6. Take ONE verification snapshot after all fields are done
+   7. If something's wrong, fix only that field, don't re-snapshot everything
+   8. Click Next/Submit
+   
+   **What NOT to do:** snapshot → fill one field → snapshot → fill one field → snapshot... This is 3x slower.
+   
+   - **Contact info** (name, email, phone): match from `structured.yaml` → `personal.*` fields. Usually pre-filled; only fix if wrong.
    - **Resume upload**: ALWAYS upload the job-specific resume from `~/.openclaw/data/jobhunt/resumes/<job_id>/resume.pdf` (or `tailored.md` if no PDF). Even if the platform already has a previously uploaded resume, DELETE or REPLACE it with the tailored version for THIS job. Every application must use its own tailored resume — never reuse a previous upload.
    - **Cover letter** (if upload option exists): upload `resumes/<job_id>/cover-letter.pdf` if it exists
    - **Structured questions** (dropdowns, radio buttons, short text):
