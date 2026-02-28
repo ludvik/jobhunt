@@ -354,6 +354,11 @@ Job URL: <url>
 2. [HH:MM:SS] <action taken>
 ...
 
+## Fields Filled
+- Field: "<field name>" → Value: "<value entered>" (source: structured.yaml | tailored.md | generated)
+- Field: "<field name>" → Value: "<value entered>"
+...
+
 ## Questions Answered
 - "<question text>" → "<answer given>" (source: structured.yaml | generated)
 
@@ -362,6 +367,18 @@ Status: applied | blocked | apply_failed
 Duration: <seconds>s
 Notes: <any issues or observations>
 ```
+
+### Logging Requirements
+
+**Pipeline log** (`~/.openclaw/data/jobhunt/pipeline-run.log`): Append timestamped entries for EVERY significant action:
+- Each form field filled: `[timestamp] Job <id>: Filled "<field>" = "<value>"`
+- Each page/step transition: `[timestamp] Job <id>: Navigated to <step/page>`
+- Resume upload: `[timestamp] Job <id>: Uploaded resume from <path>`
+- Questions answered: `[timestamp] Job <id>: Answered "<question>" = "<answer>"`
+- Errors/retries: `[timestamp] Job <id>: Error: <description>, retrying...`
+- Final result: `[timestamp] Job <id>: Result: <applied|blocked|apply_failed> - <reason>`
+
+Be verbose. The log should allow someone running `tail -f` to see exactly what the agent is doing in real time.
 
 11. **Update status**: Run `uv run jobhunt status <id> --set <status> --note "<note>"`
 12. **Update knowledge base**: Append any new findings to `~/.openclaw/data/jobhunt/apply-knowledge/platforms/linkedin-easy.md`:
