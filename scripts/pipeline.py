@@ -190,7 +190,8 @@ def run_fetch(config: dict, dry_run: bool, log: logging.Logger,
         log.info("PIPELINE: [DRY RUN] Skipping fetch")
         return
     result = subprocess.run(
-        ["uv", "run", "jobhunt", "fetch", "--limit", str(limit), "--lookback", str(lookback)],
+        ["uv", "run", "--directory", str(skill_dir), "python", "scripts/cli.py",
+         "fetch", "--limit", str(limit), "--lookback", str(lookback)],
         cwd=skill_dir,
         capture_output=True,
         text=True,
@@ -307,13 +308,17 @@ def main() -> None:
             results["tailor_failed"] += 1
             continue
 
-        # Poll DB for status change (max 5s)
+        # Poll DB for status change (max 60s)
+        log.info("PIPELINE: Job %d: Polling DB for status=tailored (up to 60s)...", jid)
         new_status: str | None = None
-        for _ in range(5):
-            time.sleep(1)
+        for _ in range(30):
+            time.sleep(2)
             new_status = get_job_status(db_path, jid)
             if new_status == "tailored":
+                log.info("PIPELINE: Job %d: DB status confirmed = tailored", jid)
                 break
+        else:
+            log.warning("PIPELINE: Job %d: DB polling timed out (60s). Status = %s", jid, new_status)
 
         if new_status != "tailored":
             log.error("PIPELINE: Job %d: Status still '%s' after tailor agent. Skipping apply.",
@@ -360,13 +365,17 @@ def main() -> None:
             results["apply_failed"] += 1
             continue
 
-        # Poll DB for final status
+        # Poll DB for final status (max 60s)
+        log.info("PIPELINE: Job %d: Polling DB for final status (up to 60s)...", jid)
         final_status: str | None = None
-        for _ in range(5):
-            time.sleep(1)
+        for _ in range(30):
+            time.sleep(2)
             final_status = get_job_status(db_path, jid)
             if final_status in ("applied", "blocked", "apply_failed"):
+                log.info("PIPELINE: Job %d: DB status confirmed = %s", jid, final_status)
                 break
+        else:
+            log.warning("PIPELINE: Job %d: DB polling timed out (60s). Status = %s", jid, final_status)
 
         log.info("PIPELINE: Job %d: Final status = %s", jid, final_status)
         if final_status in results:
