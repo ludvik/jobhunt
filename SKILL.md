@@ -385,7 +385,10 @@ Notes: <any issues or observations>
 | No confirmation after submit | `apply_failed` + note "No confirmation detected" |
 | "Already applied" | `applied` + note "Previously applied" |
 
-**Critical rule**: Never silently fail. Every outcome must have a log entry and a status update.
+**Critical rules**:
+- Never silently fail. Every outcome must have a log entry and a status update.
+- **ANY password created or used during apply MUST be saved to macOS Keychain** (`security add-generic-password -a "<email>" -s "jobhunt:<domain>" -w "<password>" -U`). No exceptions.
+- **Work experience entries filled in application forms MUST match the tailored resume** (`resumes/<job_id>/tailored.md`). Do not invent or freestyle experience — copy from the tailored resume.
 
 ---
 
