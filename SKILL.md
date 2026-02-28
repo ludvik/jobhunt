@@ -320,7 +320,7 @@ When you create a new account or use a password during apply:
 7. **Fill form step by step**:
    - Before each step: take a snapshot to read current form fields
    - **Contact info** (name, email, phone): match from `structured.yaml` → `personal.*` fields. LinkedIn usually pre-fills these; verify and correct if needed.
-   - **Resume upload**: upload `~/.openclaw/data/jobhunt/resumes/<job_id>/resume.pdf`
+   - **Resume upload**: ALWAYS upload the job-specific resume from `~/.openclaw/data/jobhunt/resumes/<job_id>/resume.pdf` (or `tailored.md` if no PDF). Even if the platform already has a previously uploaded resume, DELETE or REPLACE it with the tailored version for THIS job. Every application must use its own tailored resume — never reuse a previous upload.
    - **Cover letter** (if upload option exists): upload `resumes/<job_id>/cover-letter.pdf` if it exists
    - **Structured questions** (dropdowns, radio buttons, short text):
      - Years of experience → `structured.yaml` → `experience.total_years` or `experience.by_skill.<name>`
