@@ -80,13 +80,13 @@ def tmp_db(tmp_data_dir: Path) -> Path:
                 platform_id TEXT,
                 title TEXT,
                 company TEXT,
-                url TEXT,
+                job_url TEXT,
                 status TEXT DEFAULT 'new',
                 fetched_at TEXT
             )
         """)
         conn.executemany(
-            "INSERT INTO jobs (id, platform, platform_id, title, company, url, status, fetched_at) "
+            "INSERT INTO jobs (id, platform, platform_id, title, company, job_url, status, fetched_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (1, "linkedin", "job1", "Engineer", "Acme", "https://acme.com/1", "new", "2026-02-28T00:00:00Z"),

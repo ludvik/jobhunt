@@ -142,7 +142,7 @@ def get_eligible_jobs(db_path: Path, limit: int) -> list[dict]:
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT id, title, company, url, status FROM jobs "
+            "SELECT id, title, company, job_url AS url, status FROM jobs "
             "WHERE status='new' ORDER BY fetched_at DESC LIMIT ?",
             (limit,)
         ).fetchall()
@@ -156,7 +156,7 @@ def get_tailored_jobs(db_path: Path, limit: int, data_dir: Path = DATA_DIR) -> l
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT id, title, company, url, status FROM jobs "
+            "SELECT id, title, company, job_url AS url, status FROM jobs "
             "WHERE status='tailored' ORDER BY fetched_at DESC LIMIT ?",
             (limit,)
         ).fetchall()
@@ -168,7 +168,7 @@ def get_job(db_path: Path, job_id: int) -> dict | None:
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT id, title, company, url, status FROM jobs WHERE id=?", (job_id,)
+            "SELECT id, title, company, job_url AS url, status FROM jobs WHERE id=?", (job_id,)
         ).fetchone()
     return dict(row) if row else None
 
