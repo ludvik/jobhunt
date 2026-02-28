@@ -116,6 +116,8 @@ Resume tailoring is done by the agent, NOT the CLI. The CLI provides data; the a
 
 ### Step-by-step
 
+**Log ALL steps to `~/.openclaw/data/jobhunt/pipeline-run.log`** (append, timestamped). Every step below must have a log entry so `tail -f` shows full progress.
+
 1. **Read the JD**: `jobhunt show <job_id>` — get JD text from the `--- JD ---` section
 2. **Read the classify prompt**: `~/.openclaw/workspace/tool-dev/jobhunt/prompts/classify.md`
 3. **Classify**: Send JD + classify prompt → get base direction (`ai`/`ic`/`mgmt`/`venture`)
@@ -155,6 +157,8 @@ All prompts live in the workspace (version-controlled):
 ## Full Pipeline Workflow (Tailor + Apply)
 
 A single subagent can run the complete pipeline for one job: tailor the resume, then apply.
+
+**GLOBAL LOGGING RULE**: Every single step of the pipeline — tailor classification, resume generation, PDF creation, browser navigation, form fills, uploads, status updates, errors — MUST be logged to `~/.openclaw/data/jobhunt/pipeline-run.log` with timestamps. Format: `[YYYY-MM-DDTHH:MM:SSZ] Job <id>: <action>`. This file is monitored via `tail -f` for real-time progress.
 
 ### Trigger
 
