@@ -251,6 +251,16 @@ When you encounter a login wall on any platform:
 5. **If SSO / OAuth redirect**: Try "Sign in with Google" or "Sign in with LinkedIn" if those sessions are available in the browser
 
 Login is NOT a reason to stop. It's a normal part of applying. Handle it.
+
+### Credential Storage (MANDATORY)
+
+When you create a new account or use a password during apply:
+1. **ALWAYS save credentials to 1Password immediately after successful login/registration**:
+   ```bash
+   op item create --category login --title "<Company> <Platform>" --url "<login_url>" --vault "Personal" -- "username=<email>" "password=<password>"
+   ```
+2. Log the credential save in the apply log (but NOT the actual password)
+3. If registration generates a password, note the requirements you followed so it can be recovered from the pattern if needed
 7. **Fill form step by step**:
    - Before each step: take a snapshot to read current form fields
    - **Contact info** (name, email, phone): match from `structured.yaml` → `personal.*` fields. LinkedIn usually pre-fills these; verify and correct if needed.
