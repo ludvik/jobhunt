@@ -29,7 +29,7 @@ bash install.sh
 
 - Python 3.11+ (managed by `uv`)
 - macOS Keychain credentials for LinkedIn (stored via `security` CLI)
-- 1Password CLI (`op` >= 2.0) — optional fallback for credential resolution
+- macOS Keychain for credential storage (no external tools needed)
 - An active LinkedIn account
 - For PDF generation: `pandoc` and `xelatex` in PATH (optional)
 
@@ -271,12 +271,36 @@ Do NOT scroll back and forth. Follow this systematic approach:
 
 When you encounter a login wall on any platform:
 
-1. **Use profile email**: Read `~/.openclaw/data/jobhunt/profile/structured.yaml` → `personal.email` as the login email
-2. **Check Keychain first**: `security find-generic-password -a "<email>" -s "jobhunt:<domain>" -w`
-3. **If not in Keychain, check 1Password**: `op item get <domain> --fields password` (may require manual authorization)
-4. **If no stored credentials**: Try the sign-up / register flow — create an account using the profile email, then save to Keychain immediately
-4. **If sign-up requires email verification**: Check email (if email tool available) or mark `blocked` with note "Needs email verification for <platform>"
-5. **If SSO / OAuth redirect**: Try "Sign in with Google" or "Sign in with LinkedIn" if those sessions are available in the browser
+**Credential source: macOS Keychain ONLY. Do NOT use 1Password (`op`).**
+
+**Email priority order**: `haomin_liu@hotmail.com` first, then `haomin.liu@gmail.com`
+
+**Step 1: Check Keychain for existing accounts**
+```bash
+# Try hotmail first
+security find-generic-password -a "haomin_liu@hotmail.com" -s "jobhunt:<domain>" -w 2>/dev/null
+# Then gmail
+security find-generic-password -a "haomin.liu@gmail.com" -s "jobhunt:<domain>" -w 2>/dev/null
+```
+- If found → use those credentials to sign in
+- If login fails with first email → try the second email
+- If both fail → proceed to Step 2
+
+**Step 2: Register new account**
+- Look for "Create Account" / "Sign Up" / "Register" button
+- Try `haomin_liu@hotmail.com` first
+- If that email is already taken or fails → try `haomin.liu@gmail.com`
+- Password pattern: `HaominLiu@2026!` (meets most requirements: upper+lower+number+special+8chars)
+- **Immediately save to Keychain** after successful registration:
+  ```bash
+  security add-generic-password -a "<email_used>" -s "jobhunt:<domain>" -w "<password>" -U
+  ```
+
+**Step 3: If registration also fails** (email verification required, CAPTCHA, etc.)
+- Mark `blocked` with note explaining the exact situation
+- Do NOT keep retrying endlessly
+
+**SSO / OAuth**: If "Sign in with Google" or "Sign in with LinkedIn" is available, try it (LinkedIn session may already be active in the browser).
 
 Login is NOT a reason to stop. It's a normal part of applying. Handle it.
 
@@ -369,5 +393,5 @@ Notes: <any issues or observations>
 
 - **LinkedIn feed**: Recommended feed has ~24 cards total (not paginated). Viewport set to 4000px to render all at once.
 - **Dedup**: By `(platform, platform_id)`. If a job exists in DB, fetch skips it entirely (no detail page visit).
-- **Credentials**: macOS Keychain → 1Password → manual browser login (fallback chain).
+- **Credentials**: macOS Keychain only. Email order: hotmail → gmail. Register if no account.
 - **DB**: SQLite stdlib, `user_version` pragma for schema migration tracking.
