@@ -273,23 +273,18 @@ When you encounter a login wall on any platform:
 
 **Credential source: macOS Keychain ONLY. Do NOT use 1Password (`op`).**
 
-**Email priority order**: `haomin_liu@hotmail.com` first, then `haomin.liu@gmail.com`
+**Email**: `haomin.liu@gmail.com` (use this for ALL platform registrations and logins)
 
 **Step 1: Check Keychain for existing accounts**
 ```bash
-# Try hotmail first
-security find-generic-password -a "haomin_liu@hotmail.com" -s "jobhunt:<domain>" -w 2>/dev/null
-# Then gmail
 security find-generic-password -a "haomin.liu@gmail.com" -s "jobhunt:<domain>" -w 2>/dev/null
 ```
 - If found → use those credentials to sign in
-- If login fails with first email → try the second email
-- If both fail → proceed to Step 2
+- If login fails → proceed to Step 2
 
 **Step 2: Register new account**
 - Look for "Create Account" / "Sign Up" / "Register" button
-- Try `haomin_liu@hotmail.com` first
-- If that email is already taken or fails → try `haomin.liu@gmail.com`
+- Use `haomin.liu@gmail.com`
 - Password pattern: `HaominLiu@2026!` (meets most requirements: upper+lower+number+special+8chars)
 - **Immediately save to Keychain** after successful registration:
   ```bash
@@ -396,5 +391,5 @@ Notes: <any issues or observations>
 
 - **LinkedIn feed**: Recommended feed has ~24 cards total (not paginated). Viewport set to 4000px to render all at once.
 - **Dedup**: By `(platform, platform_id)`. If a job exists in DB, fetch skips it entirely (no detail page visit).
-- **Credentials**: macOS Keychain only. Email order: hotmail → gmail. Register if no account.
+- **Credentials**: macOS Keychain only. Email: `haomin.liu@gmail.com`. Register if no account.
 - **DB**: SQLite stdlib, `user_version` pragma for schema migration tracking.
