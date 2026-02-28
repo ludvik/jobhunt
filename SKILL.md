@@ -160,14 +160,9 @@ A single subagent can run the complete pipeline for one job: tailor the resume, 
 
 **GLOBAL LOGGING RULE**: Every single step of the pipeline — tailor classification, resume generation, PDF creation, browser navigation, form fills, uploads, status updates, errors — MUST be logged to `~/.openclaw/data/jobhunt/pipeline-run.log` with timestamps. Format: `[YYYY-MM-DDTHH:MM:SSZ] Job <id>: <action>`. This file is monitored via `tail -f` for real-time progress.
 
-### Trigger
+### Single Job Pipeline
 
-Orchestrator spawns a subagent with:
-```
-task: "Run full pipeline for job <job_id>. Read SKILL.md at ~/.openclaw/workspace/skills/jobhunt/SKILL.md, follow the Full Pipeline Workflow."
-```
-
-### Steps
+For one job:
 
 1. **Read job info**: `cd ~/code/openclaw-tools/jobhunt && uv run jobhunt show <job_id>` → get status, URL, JD
 2. **Check status**:
@@ -176,8 +171,46 @@ task: "Run full pipeline for job <job_id>. Read SKILL.md at ~/.openclaw/workspac
    - `skipped`/`blocked`/`apply_failed`/`applied` → STOP, report "Job not eligible, status=<status>"
 3. **Tailor** — follow the Tailor Workflow section below (steps 1-11). When done, job status = `tailored`.
 4. **Verify artifacts**: Check if `~/.openclaw/data/jobhunt/resumes/<job_id>/tailored.md` and `resume.pdf` exist. If missing, run the Tailor Workflow to generate them (even if status is already `tailored`). If PDF generation fails, proceed with `tailored.md` only.
-5. **Apply** — follow the Apply Workflow section below (steps 1-12).
+5. **Apply** — follow the Apply Workflow section below (steps 1-13).
 6. **Report**: Summarize what happened (tailored? applied? blocked? why?)
+
+### Batch Pipeline (Multiple Jobs)
+
+A single subagent processes multiple jobs sequentially in one session. This is the preferred mode for bulk apply runs.
+
+**How to invoke:**
+```
+sessions_spawn(
+  task: "Run batch pipeline. Read SKILL.md at ~/.openclaw/workspace/skills/jobhunt/SKILL.md, follow the Batch Pipeline section. Job queue: <comma-separated IDs newest first>",
+  label: "pipeline-batch",
+  mode: "run",
+  model: "sonnet"
+)
+```
+
+**Batch execution rules:**
+1. Process jobs one at a time, in the given order
+2. For EACH job: run the full Single Job Pipeline above (tailor + apply)
+3. **After each job (any outcome)**: close ALL browser tabs, then immediately start the next job
+4. **On failure/block**: log the error, set status (`blocked` or `apply_failed`), and MOVE ON — never stop the batch
+5. **Logging is mandatory**: Before starting each job, log: `[timestamp] === BATCH: Starting job <id> (<company> - <title>) [<N>/<total>] ===`. After each job, log: `[timestamp] === BATCH: Job <id> result: <applied|blocked|apply_failed> ===`
+6. **Every action must be logged** — tailor classification, resume write, PDF generation, browser navigation, each form field filled, uploads, errors, retries. The log file is the single source of truth for monitoring. If it is not in the log, it did not happen.
+7. **At batch end**: log a summary table of all results
+
+**Logging implementation**: After every tool call that changes state, immediately append a line:
+```bash
+echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Job <id>: <description>" >> ~/.openclaw/data/jobhunt/pipeline-run.log
+```
+
+**Critical context (always include in task prompt):**
+- Email: haomin.liu@gmail.com. Password pattern: HaominLiu@2026!
+- Browser: profile="openclaw", target="host" on every call
+- Gmail verification: `gog gmail messages search "from:<domain> newer_than:1h" --max 5 --account haomin.liu@gmail.com` then `gog gmail get <id> --account haomin.liu@gmail.com --plain`
+- Base resumes: ~/code/openclaw-tools/resume-factory/src/
+- Tailor prompts: ~/.openclaw/workspace/tool-dev/jobhunt/prompts/
+- Status updates: `cd ~/code/openclaw-tools/jobhunt && uv run jobhunt status <id> --set <status>`
+- Platform knowledge: ~/.openclaw/data/jobhunt/apply-knowledge/platforms/
+- NEVER run `openclaw gateway restart`
 
 ---
 
