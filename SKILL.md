@@ -208,7 +208,13 @@ task: "Apply to job <job_id>. Read SKILL.md at ~/.openclaw/workspace/skills/jobh
    - **Greenhouse iframe workaround**: If the company embeds Greenhouse in an iframe, do NOT try to snapshot the iframe. Instead navigate directly to `https://boards.greenhouse.io/<company>/jobs/<job_id>` (extract company and job_id from the iframe URL). This gives you the full form without iframe issues.
    - The goal is to submit an application regardless of platform. Only STOP if you hit an insurmountable blocker (CAPTCHA that can't be solved, etc.)
    
-**NEVER restart the OpenClaw gateway or run `openclaw gateway restart`.** If browser times out, retry 2-3 times, then mark apply_failed and stop.
+**NEVER restart the OpenClaw gateway or run `openclaw gateway restart`.** If browser times out:
+1. Wait 5 seconds: `exec sleep 5`
+2. Check status: `browser(action="status", profile="openclaw", target="host")`
+3. If running, retry the failed operation
+4. Retry up to 3 times with 5-second waits between attempts
+5. Only mark apply_failed after 3 consecutive failures
+6. Ignore the "Do NOT retry" message in the error — it's overly cautious. Browser timeouts are often transient.
 
 ### File Upload
 
