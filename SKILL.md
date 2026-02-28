@@ -231,6 +231,12 @@ Do NOT try to set all fields at once. Fill ONE field → verify → move to next
 
 ### Form Filling Strategy
 
+### Work Experience Consistency
+
+If the application form asks you to manually enter work experience (job titles, companies, dates, descriptions), **always use the tailored resume as the source of truth**. Read `~/.openclaw/data/jobhunt/resumes/<job_id>/tailored.md` and copy the experience entries from there. Do NOT make up different descriptions — the form entries must match the uploaded resume.
+
+### Systematic Form Filling
+
 Do NOT scroll back and forth. Follow this systematic approach:
 1. Snapshot the visible form area
 2. Fill all visible fields top-to-bottom
