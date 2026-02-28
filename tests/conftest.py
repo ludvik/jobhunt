@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from jobhunt.db import init_db
-from jobhunt.models import JobCard
+from scripts.db import init_db
+from scripts.models import JobCard
 
 
 # ---------------------------------------------------------------------------

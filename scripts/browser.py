@@ -14,7 +14,7 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright, BrowserContext, Browser, Playwright
 
-from jobhunt.utils import log_warn
+from scripts.utils import log_warn
 
 # ---------------------------------------------------------------------------
 # LinkedIn session-expiry URL patterns (FR-03)

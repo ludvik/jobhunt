@@ -13,9 +13,9 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from jobhunt import __version__
-from jobhunt.models import JobStatus
-from jobhunt.utils import truncate_str
+from scripts import __version__
+from scripts.models import JobStatus
+from scripts.utils import truncate_str
 
 # ---------------------------------------------------------------------------
 # CLI group
@@ -36,8 +36,8 @@ def main() -> None:
 @main.command("auth")
 def cmd_auth() -> None:
     """Authenticate with LinkedIn (auto-login via 1Password or manual fallback)."""
-    from jobhunt import auth
-    from jobhunt.config import load_config
+    from scripts import auth
+    from scripts.config import load_config
 
     config = load_config()
     success = auth.run_auth(config)
@@ -62,7 +62,7 @@ def cmd_auth() -> None:
 )
 def cmd_config(action: str | None, email: str | None) -> None:
     """View or update jobhunt configuration settings."""
-    from jobhunt.config import (
+    from scripts.config import (
         load_config,
         prepend_preferred_email,
         print_config,
@@ -101,9 +101,9 @@ ctx_cmd_config = cmd_config  # noqa: F841 (used above)
 @click.option("--verbose", is_flag=True, help="Print per-job status lines.")
 def cmd_fetch(limit: int, lookback: int, dry_run: bool, verbose: bool) -> None:
     """Scrape LinkedIn recommended jobs and store new postings."""
-    from jobhunt import auth, fetcher
-    from jobhunt.config import load_config
-    from jobhunt import db as db_module
+    from scripts import auth, fetcher
+    from scripts.config import load_config
+    from scripts import db as db_module
 
     config = load_config()
 
@@ -154,8 +154,8 @@ def cmd_list(
     as_json: bool,
 ) -> None:
     """List tracked jobs with optional filters."""
-    from jobhunt import db as db_module
-    from jobhunt.config import load_config
+    from scripts import db as db_module
+    from scripts.config import load_config
 
     # Validate status tokens (FR-31)
     if status:
@@ -201,8 +201,8 @@ def cmd_list(
 @click.argument("job_id", type=int)
 def cmd_show(job_id: int) -> None:
     """Display full details for a single job by its database ID."""
-    from jobhunt import db as db_module
-    from jobhunt.config import load_config
+    from scripts import db as db_module
+    from scripts.config import load_config
 
     load_config()  # ensure data dir exists
     conn = db_module.init_db(str(_db_path()))
@@ -239,8 +239,8 @@ def cmd_show(job_id: int) -> None:
 @click.option("--note", default=None, help="Optional note to attach to this status change.")
 def cmd_status(job_id: int, new_status: str, note: str | None) -> None:
     """Set job status and optionally attach a note."""
-    from jobhunt import db as db_module
-    from jobhunt.config import load_config
+    from scripts import db as db_module
+    from scripts.config import load_config
 
     load_config()
     conn = db_module.init_db(str(_db_path()))
@@ -321,5 +321,5 @@ def _render_detail(job: dict) -> None:
 
 def _db_path():
     """Return the DB_PATH constant (deferred import avoids circular issues)."""
-    from jobhunt.config import DB_PATH
+    from scripts.config import DB_PATH
     return DB_PATH

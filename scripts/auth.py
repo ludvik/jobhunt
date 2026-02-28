@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import sys
 
-from jobhunt import browser, credentials
-from jobhunt.config import SESSION_DIR, SESSION_PATH
-from jobhunt.models import Credential
-from jobhunt.utils import log_info, log_warn
+from scripts import browser, credentials
+from scripts.config import SESSION_DIR, SESSION_PATH
+from scripts.models import Credential
+from scripts.utils import log_info, log_warn
 
 
 # ---------------------------------------------------------------------------

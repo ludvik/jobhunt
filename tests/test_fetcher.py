@@ -9,9 +9,9 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
-from jobhunt.db import init_db, upsert_job
-from jobhunt.fetcher import _fetch_with_retry, _poll_for_new_cards, clean_title, print_summary, run_fetch, scroll_loop
-from jobhunt.models import ExtractionError, JobCard, RunStats
+from scripts.db import init_db, upsert_job
+from scripts.fetcher import _fetch_with_retry, _poll_for_new_cards, clean_title, print_summary, run_fetch, scroll_loop
+from scripts.models import ExtractionError, JobCard, RunStats
 
 
 # ---------------------------------------------------------------------------
@@ -80,9 +80,9 @@ class TestFetchWithRetry:
         page.url = "https://www.linkedin.com/jobs/view/1111111111/"
 
         with (
-            patch("jobhunt.fetcher.browser.is_session_valid", return_value=True),
-            patch("jobhunt.fetcher.extractor.extract_jd", return_value="jd text"),
-            patch("jobhunt.fetcher.extractor.compute_hash", return_value="hash1"),
+            patch("scripts.fetcher.browser.is_session_valid", return_value=True),
+            patch("scripts.fetcher.extractor.extract_jd", return_value="jd text"),
+            patch("scripts.fetcher.extractor.compute_hash", return_value="hash1"),
             patch("time.sleep"),
         ):
             result, is_repost = _fetch_with_retry(page, card, tmp_db, dry_run=False)
@@ -98,9 +98,9 @@ class TestFetchWithRetry:
         page.url = sample_card.job_url
 
         with (
-            patch("jobhunt.fetcher.browser.is_session_valid", return_value=True),
-            patch("jobhunt.fetcher.extractor.extract_jd", return_value="jd text"),
-            patch("jobhunt.fetcher.extractor.compute_hash", return_value="hash1"),
+            patch("scripts.fetcher.browser.is_session_valid", return_value=True),
+            patch("scripts.fetcher.extractor.extract_jd", return_value="jd text"),
+            patch("scripts.fetcher.extractor.compute_hash", return_value="hash1"),
             patch("time.sleep"),
         ):
             result, _ = _fetch_with_retry(page, sample_card, tmp_db, dry_run=False)
@@ -125,9 +125,9 @@ class TestFetchWithRetry:
         page.url = "https://www.linkedin.com/jobs/view/1111111111/"
 
         with (
-            patch("jobhunt.fetcher.browser.is_session_valid", return_value=True),
-            patch("jobhunt.fetcher.extractor.extract_jd", return_value="jd text"),
-            patch("jobhunt.fetcher.extractor.compute_hash", return_value="hash1"),
+            patch("scripts.fetcher.browser.is_session_valid", return_value=True),
+            patch("scripts.fetcher.extractor.extract_jd", return_value="jd text"),
+            patch("scripts.fetcher.extractor.compute_hash", return_value="hash1"),
             patch("time.sleep"),
         ):
             result, _ = _fetch_with_retry(page, card, tmp_db, dry_run=False)
@@ -164,9 +164,9 @@ class TestFetchWithRetry:
             return "recovered jd text"
 
         with (
-            patch("jobhunt.fetcher.browser.is_session_valid", return_value=True),
-            patch("jobhunt.fetcher.extractor.extract_jd", side_effect=flaky_extract),
-            patch("jobhunt.fetcher.extractor.compute_hash", return_value="hash1"),
+            patch("scripts.fetcher.browser.is_session_valid", return_value=True),
+            patch("scripts.fetcher.extractor.extract_jd", side_effect=flaky_extract),
+            patch("scripts.fetcher.extractor.compute_hash", return_value="hash1"),
             patch("time.sleep"),
         ):
             result, _ = _fetch_with_retry(page, card, tmp_db, dry_run=False)
@@ -179,9 +179,9 @@ class TestFetchWithRetry:
         page.url = "https://www.linkedin.com/jobs/view/1111111111/"
 
         with (
-            patch("jobhunt.fetcher.browser.is_session_valid", return_value=True),
-            patch("jobhunt.fetcher.extractor.extract_jd", return_value="jd text"),
-            patch("jobhunt.fetcher.extractor.compute_hash", return_value="hash1"),
+            patch("scripts.fetcher.browser.is_session_valid", return_value=True),
+            patch("scripts.fetcher.extractor.extract_jd", return_value="jd text"),
+            patch("scripts.fetcher.extractor.compute_hash", return_value="hash1"),
             patch("time.sleep"),
         ):
             result, _ = _fetch_with_retry(page, card, tmp_db, dry_run=True)
@@ -444,12 +444,12 @@ class TestScrollLoop:
 
     def test_max_empty_scrolls_is_8(self):
         """Bug #12: _MAX_EMPTY_SCROLLS should be 8, not 5."""
-        from jobhunt.fetcher import _MAX_EMPTY_SCROLLS
+        from scripts.fetcher import _MAX_EMPTY_SCROLLS
         assert _MAX_EMPTY_SCROLLS == 8
 
     def test_poll_timeout_and_interval_values(self):
         """Issue #16: poll timeouts increased for lazy-load reliability."""
-        from jobhunt.fetcher import _POLL_INTERVAL_MS, _POLL_TIMEOUT_MS
+        from scripts.fetcher import _POLL_INTERVAL_MS, _POLL_TIMEOUT_MS
         assert _POLL_TIMEOUT_MS == 4000
         assert _POLL_INTERVAL_MS == 500
 
@@ -464,8 +464,8 @@ class TestFetchSkipsExisting:
 
     def test_existing_platform_id_skipped(self, tmp_db):
         """Already-scraped job should be skipped without navigating to detail page."""
-        from jobhunt.db import upsert_job
-        from jobhunt import db as db_module
+        from scripts.db import upsert_job
+        from scripts import db as db_module
 
         card = JobCard(
             platform_id="1111111111",
@@ -483,7 +483,7 @@ class TestFetchSkipsExisting:
         page = MagicMock()
         stats = RunStats()
 
-        with patch("jobhunt.fetcher._fetch_with_retry") as mock_fwr:
+        with patch("scripts.fetcher._fetch_with_retry") as mock_fwr:
             # Simulate the fetch loop logic from run_fetch
             if db_module.job_exists(tmp_db, "linkedin", card.platform_id):
                 stats.skipped += 1
@@ -496,7 +496,7 @@ class TestFetchSkipsExisting:
 
     def test_new_platform_id_not_skipped(self, tmp_db):
         """New job should proceed to _fetch_with_retry."""
-        from jobhunt import db as db_module
+        from scripts import db as db_module
 
         card = JobCard(
             platform_id="2222222222",

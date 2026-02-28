@@ -1,0 +1,3 @@
+# Per-role overrides for the apply agent
+apply_timeout: 1200
+thinking_level: "low"

@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
-from jobhunt.db import (
+from scripts.db import (
     ALLOWED_TRANSITIONS,
     append_job_note,
     get_job,
@@ -20,7 +20,7 @@ from jobhunt.db import (
     set_job_status,
     upsert_job,
 )
-from jobhunt.models import JobCard
+from scripts.models import JobCard
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +85,7 @@ class TestSetJobStatusValid:
         job_id = _seed_job(tmp_db, status="new")
         job_before = get_job(tmp_db, job_id)
         # Mock utcnow_iso to return a distinct timestamp
-        with patch("jobhunt.db.utcnow_iso", return_value="2099-01-01T00:00:00Z"):
+        with patch("scripts.db.utcnow_iso", return_value="2099-01-01T00:00:00Z"):
             set_job_status(tmp_db, job_id, "tailored")
         job_after = get_job(tmp_db, job_id)
         assert job_after["status_updated_at"] == "2099-01-01T00:00:00Z"
@@ -257,19 +257,19 @@ class TestQueryJobsStatusFilter:
 class TestStatusCommand:
     def test_valid_transition_via_cli(self, tmp_path):
         from click.testing import CliRunner
-        from jobhunt.cli import main
+        from scripts.cli import main
 
-        db_path = tmp_path / "jobhunt.db"
+        db_path = tmp_path / "scripts.db"
         config_path = tmp_path / "config.json"
         conn = init_db(db_path)
         job_id = _seed_job(conn, status="new")
         conn.close()
 
         with (
-            patch("jobhunt.config.CONFIG_PATH", config_path),
-            patch("jobhunt.config.DATA_DIR", tmp_path),
-            patch("jobhunt.config.DB_PATH", db_path),
-            patch("jobhunt.cli._db_path", return_value=db_path),
+            patch("scripts.config.CONFIG_PATH", config_path),
+            patch("scripts.config.DATA_DIR", tmp_path),
+            patch("scripts.config.DB_PATH", db_path),
+            patch("scripts.cli._db_path", return_value=db_path),
         ):
             runner = CliRunner()
             result = runner.invoke(main, ["status", str(job_id), "--set", "tailored"])
@@ -279,19 +279,19 @@ class TestStatusCommand:
 
     def test_invalid_transition_via_cli(self, tmp_path):
         from click.testing import CliRunner
-        from jobhunt.cli import main
+        from scripts.cli import main
 
-        db_path = tmp_path / "jobhunt.db"
+        db_path = tmp_path / "scripts.db"
         config_path = tmp_path / "config.json"
         conn = init_db(db_path)
         job_id = _seed_job(conn, status="new")
         conn.close()
 
         with (
-            patch("jobhunt.config.CONFIG_PATH", config_path),
-            patch("jobhunt.config.DATA_DIR", tmp_path),
-            patch("jobhunt.config.DB_PATH", db_path),
-            patch("jobhunt.cli._db_path", return_value=db_path),
+            patch("scripts.config.CONFIG_PATH", config_path),
+            patch("scripts.config.DATA_DIR", tmp_path),
+            patch("scripts.config.DB_PATH", db_path),
+            patch("scripts.cli._db_path", return_value=db_path),
         ):
             runner = CliRunner()
             result = runner.invoke(main, ["status", str(job_id), "--set", "applied"])
@@ -300,19 +300,19 @@ class TestStatusCommand:
 
     def test_status_with_note_via_cli(self, tmp_path):
         from click.testing import CliRunner
-        from jobhunt.cli import main
+        from scripts.cli import main
 
-        db_path = tmp_path / "jobhunt.db"
+        db_path = tmp_path / "scripts.db"
         config_path = tmp_path / "config.json"
         conn = init_db(db_path)
         job_id = _seed_job(conn, status="tailored")
         conn.close()
 
         with (
-            patch("jobhunt.config.CONFIG_PATH", config_path),
-            patch("jobhunt.config.DATA_DIR", tmp_path),
-            patch("jobhunt.config.DB_PATH", db_path),
-            patch("jobhunt.cli._db_path", return_value=db_path),
+            patch("scripts.config.CONFIG_PATH", config_path),
+            patch("scripts.config.DATA_DIR", tmp_path),
+            patch("scripts.config.DB_PATH", db_path),
+            patch("scripts.cli._db_path", return_value=db_path),
         ):
             runner = CliRunner()
             result = runner.invoke(
@@ -329,16 +329,16 @@ class TestStatusCommand:
 
     def test_nonexistent_job_via_cli(self, tmp_path):
         from click.testing import CliRunner
-        from jobhunt.cli import main
+        from scripts.cli import main
 
-        db_path = tmp_path / "jobhunt.db"
+        db_path = tmp_path / "scripts.db"
         config_path = tmp_path / "config.json"
 
         with (
-            patch("jobhunt.config.CONFIG_PATH", config_path),
-            patch("jobhunt.config.DATA_DIR", tmp_path),
-            patch("jobhunt.config.DB_PATH", db_path),
-            patch("jobhunt.cli._db_path", return_value=db_path),
+            patch("scripts.config.CONFIG_PATH", config_path),
+            patch("scripts.config.DATA_DIR", tmp_path),
+            patch("scripts.config.DB_PATH", db_path),
+            patch("scripts.cli._db_path", return_value=db_path),
         ):
             runner = CliRunner()
             result = runner.invoke(main, ["status", "99999", "--set", "tailored"])
@@ -355,19 +355,19 @@ class TestStatusCommand:
 class TestListStatusFilter:
     def test_list_single_status(self, tmp_path):
         from click.testing import CliRunner
-        from jobhunt.cli import main
+        from scripts.cli import main
 
-        db_path = tmp_path / "jobhunt.db"
+        db_path = tmp_path / "scripts.db"
         config_path = tmp_path / "config.json"
         conn = init_db(db_path)
         _seed_mixed_status_jobs(conn)
         conn.close()
 
         with (
-            patch("jobhunt.config.CONFIG_PATH", config_path),
-            patch("jobhunt.config.DATA_DIR", tmp_path),
-            patch("jobhunt.config.DB_PATH", db_path),
-            patch("jobhunt.cli._db_path", return_value=db_path),
+            patch("scripts.config.CONFIG_PATH", config_path),
+            patch("scripts.config.DATA_DIR", tmp_path),
+            patch("scripts.config.DB_PATH", db_path),
+            patch("scripts.cli._db_path", return_value=db_path),
         ):
             runner = CliRunner()
             result = runner.invoke(main, ["list", "--status", "tailored", "--json"])
@@ -378,19 +378,19 @@ class TestListStatusFilter:
 
     def test_list_multiple_statuses(self, tmp_path):
         from click.testing import CliRunner
-        from jobhunt.cli import main
+        from scripts.cli import main
 
-        db_path = tmp_path / "jobhunt.db"
+        db_path = tmp_path / "scripts.db"
         config_path = tmp_path / "config.json"
         conn = init_db(db_path)
         _seed_mixed_status_jobs(conn)
         conn.close()
 
         with (
-            patch("jobhunt.config.CONFIG_PATH", config_path),
-            patch("jobhunt.config.DATA_DIR", tmp_path),
-            patch("jobhunt.config.DB_PATH", db_path),
-            patch("jobhunt.cli._db_path", return_value=db_path),
+            patch("scripts.config.CONFIG_PATH", config_path),
+            patch("scripts.config.DATA_DIR", tmp_path),
+            patch("scripts.config.DB_PATH", db_path),
+            patch("scripts.cli._db_path", return_value=db_path),
         ):
             runner = CliRunner()
             result = runner.invoke(main, ["list", "--status", "blocked,apply_failed", "--json"])
@@ -402,16 +402,16 @@ class TestListStatusFilter:
 
     def test_list_invalid_status_rejected(self, tmp_path):
         from click.testing import CliRunner
-        from jobhunt.cli import main
+        from scripts.cli import main
 
-        db_path = tmp_path / "jobhunt.db"
+        db_path = tmp_path / "scripts.db"
         config_path = tmp_path / "config.json"
 
         with (
-            patch("jobhunt.config.CONFIG_PATH", config_path),
-            patch("jobhunt.config.DATA_DIR", tmp_path),
-            patch("jobhunt.config.DB_PATH", db_path),
-            patch("jobhunt.cli._db_path", return_value=db_path),
+            patch("scripts.config.CONFIG_PATH", config_path),
+            patch("scripts.config.DATA_DIR", tmp_path),
+            patch("scripts.config.DB_PATH", db_path),
+            patch("scripts.cli._db_path", return_value=db_path),
         ):
             runner = CliRunner()
             result = runner.invoke(main, ["list", "--status", "invalid_status"])
