@@ -245,8 +245,9 @@ Do NOT scroll back and forth. Follow this systematic approach:
 When you encounter a login wall on any platform:
 
 1. **Use profile email**: Read `~/.openclaw/data/jobhunt/profile/structured.yaml` → `personal.email` as the login email
-2. **Get password from 1Password**: Run `op item get <domain> --fields password` (e.g., `op item get google.com --fields password`). Try variations: domain name, service name, URL.
-3. **If no 1Password entry**: Try the sign-up / register flow instead — create an account using the profile email
+2. **Check Keychain first**: `security find-generic-password -a "<email>" -s "jobhunt:<domain>" -w`
+3. **If not in Keychain, check 1Password**: `op item get <domain> --fields password` (may require manual authorization)
+4. **If no stored credentials**: Try the sign-up / register flow — create an account using the profile email, then save to Keychain immediately
 4. **If sign-up requires email verification**: Check email (if email tool available) or mark `blocked` with note "Needs email verification for <platform>"
 5. **If SSO / OAuth redirect**: Try "Sign in with Google" or "Sign in with LinkedIn" if those sessions are available in the browser
 
@@ -254,13 +255,22 @@ Login is NOT a reason to stop. It's a normal part of applying. Handle it.
 
 ### Credential Storage (MANDATORY)
 
+Use **macOS Keychain** (not 1Password) for credential storage — it requires no manual authorization.
+
 When you create a new account or use a password during apply:
-1. **ALWAYS save credentials to 1Password immediately after successful login/registration**:
+1. **Save immediately after successful login/registration**:
    ```bash
-   op item create --category login --title "<Company> <Platform>" --url "<login_url>" --vault "Personal" -- "username=<email>" "password=<password>"
+   # Save password
+   security add-generic-password -a "<email>" -s "jobhunt:<domain>" -w "<password>" -U
+   # Example: security add-generic-password -a "haomin.liu@gmail.com" -s "jobhunt:myworkdaysite.com" -w "MyPass@2026!" -U
    ```
-2. Log the credential save in the apply log (but NOT the actual password)
-3. If registration generates a password, note the requirements you followed so it can be recovered from the pattern if needed
+2. **Retrieve when needed**:
+   ```bash
+   security find-generic-password -a "<email>" -s "jobhunt:<domain>" -w
+   ```
+3. Service name convention: `jobhunt:<domain>` (e.g., `jobhunt:myworkdaysite.com`, `jobhunt:greenhouse.io`)
+4. Log the credential save in the apply log (but NOT the actual password)
+5. The `-U` flag updates existing entries if they already exist
 7. **Fill form step by step**:
    - Before each step: take a snapshot to read current form fields
    - **Contact info** (name, email, phone): match from `structured.yaml` → `personal.*` fields. LinkedIn usually pre-fills these; verify and correct if needed.
