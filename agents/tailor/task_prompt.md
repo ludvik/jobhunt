@@ -16,7 +16,7 @@ Follow the Tailor Workflow in `$skill_dir/SKILL.md` exactly. Steps:
 1. Read full JD: `uv run --directory $skill_dir python scripts/cli.py show $job_id`
 2. Read classify prompt: `$skill_dir/references/prompts/classify.md` (or workspace fallback)
 3. Classify JD → base direction: ai | ic | mgmt | venture
-4. Read matching base resume from `~/code/openclaw-tools/resume-factory/src/`
+4. Read matching base resume from `$data_dir/profile/base-resumes/`
 5. Read tailor prompt: `$skill_dir/references/prompts/tailor.md`
 6. Generate tailored resume markdown
 7. Write to: `$data_dir/resumes/$job_id/tailored.md`

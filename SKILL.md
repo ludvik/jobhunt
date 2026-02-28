@@ -28,7 +28,7 @@ All data lives locally at `~/.openclaw/data/jobhunt/`.
 ## Installation
 
 ```bash
-cd ~/code/openclaw-tools/jobhunt
+cd {baseDir}
 bash install.sh
 ```
 
@@ -130,7 +130,7 @@ Resume tailoring is done by the agent, NOT the CLI. The CLI provides data; the a
 1. **Read the JD**: `jobhunt show <job_id>` — get JD text from the `--- JD ---` section
 2. **Read the classify prompt**: `{baseDir}/references/prompts/classify.md`
 3. **Classify**: Send JD + classify prompt → get base direction (`ai`/`ic`/`mgmt`/`venture`)
-4. **Read base resume**: `~/code/openclaw-tools/resume-factory/src/base-resume-<direction>.md`
+4. **Read base resume**: `$data_dir/profile/base-resumes/base-resume-<direction>.md`
    - `ai` → `base-cv-ai-engineer.md`
    - `ic` → `base-resume-ic.md`
    - `mgmt` → `base-resume-mgmt.md`
@@ -139,7 +139,7 @@ Resume tailoring is done by the agent, NOT the CLI. The CLI provides data; the a
 6. **Tailor**: Send JD + base resume + tailor prompt → get tailored resume markdown
 7. **Write output**: Save to `~/.openclaw/data/jobhunt/resumes/<job_id>/tailored.md`
 8. **Optional — Analyze**: Read `prompts/analyze.md`, send JD + tailored resume → save to `resumes/<job_id>/analysis.md`
-9. **Optional — PDF**: Run `python ~/code/openclaw-tools/resume-factory/generate_pdf.py --src tailored.md --out resume.pdf`
+9. **Optional — PDF**: Run `python $data_dir/profile/base-resumes/generate_pdf.py --src tailored.md --out resume.pdf`
 10. **Update status**: `jobhunt status <job_id> --set tailored --note "Base: <direction>"`
 11. **Write meta**: Save `resumes/<job_id>/meta.json` with prompt hash, base direction, timestamp
 
@@ -173,7 +173,7 @@ A single subagent can run the complete pipeline for one job: tailor the resume, 
 
 For one job:
 
-1. **Read job info**: `cd ~/code/openclaw-tools/jobhunt && uv run --directory {baseDir} python scripts/cli.py show <job_id>` → get status, URL, JD
+1. **Read job info**: `uv run --directory {baseDir} python scripts/cli.py show <job_id>` → get status, URL, JD
 2. **Check status**:
    - `new` → proceed to step 3 (Tailor)
    - `tailored` → proceed to step 4 (Verify artifacts)
@@ -215,9 +215,9 @@ echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Job <id>: <description>" >> ~/.openclaw/d
 - Email: haomin.liu@gmail.com. Password pattern: HaominLiu@2026!
 - Browser: profile="openclaw", target="host" on every call
 - Gmail verification: `gog gmail messages search "from:<domain> newer_than:1h" --max 5 --account haomin.liu@gmail.com` then `gog gmail get <id> --account haomin.liu@gmail.com --plain`
-- Base resumes: ~/code/openclaw-tools/resume-factory/src/
+- Base resumes: $data_dir/profile/base-resumes/
 - Tailor prompts: ~/.openclaw/workspace/tool-dev/jobhunt/prompts/
-- Status updates: `cd ~/code/openclaw-tools/jobhunt && uv run --directory {baseDir} python scripts/cli.py status <id> --set <status>`
+- Status updates: `uv run --directory {baseDir} python scripts/cli.py status <id> --set <status>`
 - Platform knowledge: ~/.openclaw/data/jobhunt/apply-knowledge/platforms/
 - NEVER run `openclaw gateway restart`
 
@@ -241,7 +241,7 @@ task: "Apply to job <job_id>. Read SKILL.md at ~/.openclaw/workspace/skills/jobh
 
 ### Step-by-step
 
-1. **Read job info**: Run `cd ~/code/openclaw-tools/jobhunt && uv run --directory {baseDir} python scripts/cli.py show <job_id>` → extract URL, company, title, JD text
+1. **Read job info**: Run `uv run --directory {baseDir} python scripts/cli.py show <job_id>` → extract URL, company, title, JD text
 2. **Read profile**: Read `~/.openclaw/data/jobhunt/profile/structured.yaml` → form fill data
 3. **Read narrative**: Read `~/.openclaw/data/jobhunt/profile/career-narrative.md` + `values-and-style.md` → for subjective questions
 4. **Read platform knowledge**: Read `~/.openclaw/data/jobhunt/apply-knowledge/platforms/linkedin-easy.md` → past experience
@@ -267,7 +267,7 @@ task: "Apply to job <job_id>. Read SKILL.md at ~/.openclaw/workspace/skills/jobh
 Browser upload paths are sandboxed. Before uploading:
 1. **Generate PDF first** (if not already done):
    ```bash
-   cd ~/code/openclaw-tools/resume-factory && python3 generate_pdf.py \
+   python3 {baseDir}/scripts/generate_pdf.py \
      --src ~/.openclaw/data/jobhunt/resumes/<job_id>/tailored.md \
      --out /tmp/openclaw/uploads/Haomin-Liu-Resume.pdf
    ```
