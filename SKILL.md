@@ -219,8 +219,12 @@ task: "Apply to job <job_id>. Read SKILL.md at ~/.openclaw/workspace/skills/jobh
 ### File Upload
 
 Browser upload paths are sandboxed. Before uploading:
-1. Copy the file to `/tmp/openclaw/uploads/`: `cp <source> /tmp/openclaw/uploads/<filename>`
-2. Arm the upload BEFORE clicking the upload button: `browser(action="upload", profile="openclaw", target="host", paths=["/tmp/openclaw/uploads/<filename>"])`
+1. **Generate PDF first** (if not already done):
+   ```bash
+   pandoc ~/.openclaw/data/jobhunt/resumes/<job_id>/tailored.md -o /tmp/openclaw/uploads/Haomin-Liu-Resume.pdf --pdf-engine=tectonic
+   ```
+   File name MUST be `Haomin-Liu-Resume.pdf` (professional, uses applicant's real name).
+2. Arm the upload BEFORE clicking the upload button: `browser(action="upload", profile="openclaw", target="host", paths=["/tmp/openclaw/uploads/Haomin-Liu-Resume.pdf"])`
 3. Then click the upload button — the file chooser will auto-resolve
 
 ### Greenhouse Custom Selects / Comboboxes
@@ -236,6 +240,14 @@ Greenhouse uses custom JS dropdown components, NOT standard HTML `<select>`. Arr
 Do NOT try to set all fields at once. Fill ONE field → verify → move to next.
 
 ### Form Filling Strategy
+
+### Education
+
+Haomin has TWO degrees. ALWAYS fill both:
+1. M.Eng, Computer Engineering, University of Electronic Science & Technology of China
+2. B.S., Computer Engineering, University of Electronic Science & Technology of China
+
+If the form has "Add Another" for education, click it to add the second degree.
 
 ### Work Experience Consistency
 
