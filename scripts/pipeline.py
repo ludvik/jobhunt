@@ -49,6 +49,22 @@ def load_config(skill_dir: Path = SKILL_DIR, data_dir: Path = DATA_DIR) -> dict:
     return config
 
 
+# ── Discord notifications ─────────────────────────────────────────────────────
+_DEFAULT_DISCORD_CHANNEL = "1476444984055169054"
+
+
+def notify(message: str, log: logging.Logger, channel_id: str = _DEFAULT_DISCORD_CHANNEL) -> None:
+    """Send a progress message to Discord channel."""
+    try:
+        subprocess.run(
+            ["openclaw", "message", "send", "--channel", "discord",
+             "--target", channel_id, "--message", message],
+            capture_output=True, text=True, timeout=15,
+        )
+    except Exception as e:
+        log.warning("PIPELINE: Failed to send notification: %s", e)
+
+
 # ── Logging ───────────────────────────────────────────────────────────────────
 def setup_logging(verbose: bool) -> logging.Logger:
     LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -190,7 +206,8 @@ def count_new_jobs(db_path: Path) -> int:
 
 
 def run_fetch(config: dict, dry_run: bool, log: logging.Logger,
-              skill_dir: Path = SKILL_DIR, db_path: Path = DATA_DIR / "jobhunt.db") -> None:
+              skill_dir: Path = SKILL_DIR, db_path: Path = DATA_DIR / "jobhunt.db",
+              channel_id: str = _DEFAULT_DISCORD_CHANNEL) -> None:
     fetch_cfg = config.get("fetch", {})
     limit = fetch_cfg.get("limit", 30)
     lookback = fetch_cfg.get("lookback", 14)
@@ -213,6 +230,7 @@ def run_fetch(config: dict, dry_run: bool, log: logging.Logger,
         after = count_new_jobs(db_path)
         newly = after - before
         log.info("PIPELINE: After fetch: %d new jobs (%d newly fetched)", after, newly)
+        notify(f"Fetch complete. {before} -> {after} new jobs ({after - before} newly fetched)", log, channel_id)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -237,6 +255,7 @@ def main() -> None:
 
     pipeline_cfg = config.get("pipeline", {})
     limit = args.limit if args.limit is not None else pipeline_cfg.get("limit", 10)
+    channel_id = pipeline_cfg.get("discord_channel", _DEFAULT_DISCORD_CHANNEL)
 
     results = {
         "total": 0, "applied": 0, "blocked": 0,
@@ -245,7 +264,7 @@ def main() -> None:
 
     # Step 1: Fetch (skip for single-job or --skip-fetch)
     if not args.skip_fetch and not args.job_id:
-        run_fetch(config, args.dry_run, log)
+        run_fetch(config, args.dry_run, log, channel_id=channel_id)
 
     # Step 2: Determine job queue
     if args.job_id:
@@ -283,6 +302,7 @@ def main() -> None:
         sys.exit(0)
 
     log.info("PIPELINE: Queue — tailor: %d, apply: %d", len(queue_tailor), len(queue_apply))
+    notify(f"Pipeline starting — {len(queue_tailor)} to tailor, {len(queue_apply)} to apply", log, channel_id)
 
     if args.dry_run:
         for j in queue_tailor:
@@ -301,6 +321,7 @@ def main() -> None:
     for i, job in enumerate(queue_tailor):
         if time.monotonic() > deadline:
             log.warning("PIPELINE: Timeout reached (%d min). Stopping tailor loop.", args.timeout)
+            notify(f"Pipeline timeout ({args.timeout}min) reached. Stopping.", log, channel_id)
             break
         jid = job["id"]
         log.info("PIPELINE: === Tailor job %d (%s @ %s) [%d/%d] ===",
@@ -346,6 +367,7 @@ def main() -> None:
             continue
 
         log.info("PIPELINE: Job %d: Tailor complete. Status = tailored", jid)
+        notify(f"Tailored: Job {jid} ({job['company']} - {job['title']})", log, channel_id)
         tailor_success.append(job)
 
     # Step 4: Apply loop
@@ -355,6 +377,7 @@ def main() -> None:
     for i, job in enumerate(apply_queue):
         if time.monotonic() > deadline:
             log.warning("PIPELINE: Timeout reached (%d min). Stopping apply loop.", args.timeout)
+            notify(f"Pipeline timeout ({args.timeout}min) reached. Stopping.", log, channel_id)
             break
         jid = job["id"]
         log.info("PIPELINE: === Apply job %d (%s @ %s) [%d/%d] ===",
@@ -400,6 +423,12 @@ def main() -> None:
             log.warning("PIPELINE: Job %d: DB polling timed out (60s). Status = %s", jid, final_status)
 
         log.info("PIPELINE: Job %d: Final status = %s", jid, final_status)
+        if final_status == "applied":
+            notify(f"Applied: Job {jid} ({job['company']} - {job['title']})", log, channel_id)
+        elif final_status == "blocked":
+            notify(f"Blocked: Job {jid} ({job['company']} - {job['title']})", log, channel_id)
+        else:
+            notify(f"Failed to apply: Job {jid} ({job['company']} - {job['title']}) status={final_status}", log, channel_id)
         if final_status in results:
             results[final_status] += 1
         else:
@@ -411,6 +440,12 @@ def main() -> None:
         "PIPELINE: Summary — total=%d applied=%d blocked=%d apply_failed=%d tailor_failed=%d",
         results["total"], results["applied"], results["blocked"],
         results["apply_failed"], results["tailor_failed"],
+    )
+    notify(
+        f"Pipeline complete — applied={results['applied']} blocked={results['blocked']} "
+        f"failed={results['apply_failed']} tailor_failed={results['tailor_failed']}",
+        log,
+        channel_id,
     )
     sys.exit(0)
 
