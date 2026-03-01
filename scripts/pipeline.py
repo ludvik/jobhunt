@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """pipeline.py — jobhunt workflow orchestrator.
 
-Usage: uv run python scripts/pipeline.py [--dry-run] [--job-id N] [--limit N] [--verbose] [--skip-fetch]
+Usage: uv run python scripts/pipeline.py [--dry-run] [--job-id N] [--limit N] [--timeout M] [--verbose] [--skip-fetch]
 """
 
 from __future__ import annotations
@@ -215,6 +215,8 @@ def main() -> None:
 
     log = setup_logging(args.verbose)
     log.info("PIPELINE: === Run started ===")
+    deadline = time.monotonic() + args.timeout * 60
+    log.info("PIPELINE: Timeout set to %d minutes", args.timeout)
 
     config = load_config(SKILL_DIR, DATA_DIR)
     db_path = DATA_DIR / "jobhunt.db"
@@ -283,6 +285,9 @@ def main() -> None:
     tailor_success: list[dict] = []
 
     for i, job in enumerate(queue_tailor):
+        if time.monotonic() > deadline:
+            log.warning("PIPELINE: Timeout reached (%d min). Stopping tailor loop.", args.timeout)
+            break
         jid = job["id"]
         log.info("PIPELINE: === Tailor job %d (%s @ %s) [%d/%d] ===",
                  jid, job["title"], job["company"], i + 1, len(queue_tailor))
@@ -334,6 +339,9 @@ def main() -> None:
     apply_cfg = load_agent_config("apply", config)
 
     for i, job in enumerate(apply_queue):
+        if time.monotonic() > deadline:
+            log.warning("PIPELINE: Timeout reached (%d min). Stopping apply loop.", args.timeout)
+            break
         jid = job["id"]
         log.info("PIPELINE: === Apply job %d (%s @ %s) [%d/%d] ===",
                  jid, job["title"], job["company"], i + 1, len(apply_queue))
