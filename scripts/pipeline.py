@@ -180,12 +180,23 @@ def get_job_status(db_path: Path, job_id: int) -> str | None:
 
 
 # ── Fetch ─────────────────────────────────────────────────────────────────────
+def count_new_jobs(db_path: Path) -> int:
+    try:
+        with sqlite3.connect(db_path) as conn:
+            row = conn.execute("SELECT COUNT(*) FROM jobs WHERE status = 'new'").fetchone()
+        return row[0] if row else 0
+    except Exception:
+        return 0
+
+
 def run_fetch(config: dict, dry_run: bool, log: logging.Logger,
-              skill_dir: Path = SKILL_DIR) -> None:
+              skill_dir: Path = SKILL_DIR, db_path: Path = DATA_DIR / "jobhunt.db") -> None:
     fetch_cfg = config.get("fetch", {})
     limit = fetch_cfg.get("limit", 30)
     lookback = fetch_cfg.get("lookback", 14)
     log.info("PIPELINE: Running fetch --limit %d --lookback %d", limit, lookback)
+    before = count_new_jobs(db_path)
+    log.info("PIPELINE: Before fetch: %d new jobs", before)
     if dry_run:
         log.info("PIPELINE: [DRY RUN] Skipping fetch")
         return
@@ -199,7 +210,9 @@ def run_fetch(config: dict, dry_run: bool, log: logging.Logger,
     if result.returncode != 0:
         log.warning("PIPELINE: Fetch exited %d: %s", result.returncode, result.stderr[:300])
     else:
-        log.info("PIPELINE: Fetch complete")
+        after = count_new_jobs(db_path)
+        newly = after - before
+        log.info("PIPELINE: After fetch: %d new jobs (%d newly fetched)", after, newly)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
