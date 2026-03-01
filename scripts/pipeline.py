@@ -296,12 +296,15 @@ def main() -> None:
         remaining = limit - len(queue_apply)
         queue_tailor = get_eligible_jobs(db_path, remaining) if remaining > 0 else []
 
-    total = len(queue_tailor) + len(queue_apply)
+    # Build unified queue: tailored first (closer to done), then new
+    unified_queue = queue_apply + queue_tailor
+    total = len(unified_queue)
     if total == 0:
         log.info("PIPELINE: No eligible jobs. Exiting.")
         sys.exit(0)
 
-    log.info("PIPELINE: Queue — %d to apply (existing tailored), %d to tailor (new)", len(queue_apply), len(queue_tailor))
+    log.info("PIPELINE: Queue — %d jobs (%d tailored, %d new)",
+             total, len(queue_apply), len(queue_tailor))
     notify(f"Pipeline starting — {len(queue_tailor)} to tailor, {len(queue_apply)} to apply", log, channel_id)
 
     if args.dry_run:
@@ -314,76 +317,71 @@ def main() -> None:
         log.info("PIPELINE: [DRY RUN] Plan complete. No changes made.")
         sys.exit(0)
 
-    # Step 3: Tailor loop
+    # Step 3: Unified sequential loop — tailor then apply each job
     tailor_cfg = load_agent_config("tailor", config)
-    tailor_success: list[dict] = []
-
-    for i, job in enumerate(queue_tailor):
-        if time.monotonic() > deadline:
-            log.warning("PIPELINE: Timeout reached (%d min). Stopping tailor loop.", args.timeout)
-            notify(f"Pipeline timeout ({args.timeout}min) reached. Stopping.", log, channel_id)
-            break
-        jid = job["id"]
-        log.info("PIPELINE: === Tailor job %d (%s @ %s) [%d/%d] ===",
-                 jid, job["title"], job["company"], i + 1, len(queue_tailor))
-        results["total"] += 1
-
-        prompt_vars = {
-            "job_id": jid,
-            "job_title": job["title"],
-            "company": job["company"],
-            "job_url": job["url"],
-            "skill_dir": str(SKILL_DIR),
-            "data_dir": str(DATA_DIR),
-        }
-        prompt = load_prompt("tailor", prompt_vars)
-        timeout = tailor_cfg.get("tailor_timeout", 600)
-        thinking = tailor_cfg.get("thinking_level", "low")
-        session_id = f"jobhunt-tailor-{jid}"
-
-        agent_result = run_agent(session_id, prompt, timeout, thinking, args.dry_run, log)
-
-        if "error" in agent_result:
-            log.error("PIPELINE: Job %d: Tailor failed — %s", jid, agent_result["error"])
-            results["tailor_failed"] += 1
-            continue
-
-        # Poll DB for status change (max 60s)
-        log.info("PIPELINE: Job %d: Polling DB for status=tailored (up to 60s)...", jid)
-        new_status: str | None = None
-        for _ in range(30):
-            time.sleep(2)
-            new_status = get_job_status(db_path, jid)
-            if new_status == "tailored":
-                log.info("PIPELINE: Job %d: DB status confirmed = tailored", jid)
-                break
-        else:
-            log.warning("PIPELINE: Job %d: DB polling timed out (60s). Status = %s", jid, new_status)
-
-        if new_status != "tailored":
-            log.error("PIPELINE: Job %d: Status still '%s' after tailor agent. Skipping apply.",
-                      jid, new_status)
-            results["tailor_failed"] += 1
-            continue
-
-        log.info("PIPELINE: Job %d: Tailor complete. Status = tailored", jid)
-        notify(f"Tailored: Job {jid} ({job['company']} - {job['title']})", log, channel_id)
-        tailor_success.append(job)
-
-    # Step 4: Apply loop
-    apply_queue = queue_apply + tailor_success
     apply_cfg = load_agent_config("apply", config)
 
-    for i, job in enumerate(apply_queue):
+    for i, job in enumerate(unified_queue):
         if time.monotonic() > deadline:
-            log.warning("PIPELINE: Timeout reached (%d min). Stopping apply loop.", args.timeout)
+            log.warning("PIPELINE: Timeout reached (%d min). Stopping.", args.timeout)
             notify(f"Pipeline timeout ({args.timeout}min) reached. Stopping.", log, channel_id)
             break
         jid = job["id"]
-        log.info("PIPELINE: === Apply job %d (%s @ %s) [%d/%d] ===",
-                 jid, job["title"], job["company"], i + 1, len(apply_queue))
-        if job not in tailor_success:
-            results["total"] += 1
+        results["total"] += 1
+
+        # ── Tailor phase (only for new jobs) ──────────────────────────────
+        if job["status"] == "new":
+            log.info("PIPELINE: === Tailor job %d (%s @ %s) [%d/%d] ===",
+                     jid, job["title"], job["company"], i + 1, total)
+            prompt_vars = {
+                "job_id": jid,
+                "job_title": job["title"],
+                "company": job["company"],
+                "job_url": job["url"],
+                "skill_dir": str(SKILL_DIR),
+                "data_dir": str(DATA_DIR),
+            }
+            prompt = load_prompt("tailor", prompt_vars)
+            timeout = tailor_cfg.get("tailor_timeout", 600)
+            thinking = tailor_cfg.get("thinking_level", "low")
+            session_id = f"jobhunt-tailor-{jid}"
+
+            agent_result = run_agent(session_id, prompt, timeout, thinking, args.dry_run, log)
+
+            if "error" in agent_result:
+                log.error("PIPELINE: Job %d: Tailor failed — %s", jid, agent_result["error"])
+                results["tailor_failed"] += 1
+                continue
+
+            # Poll DB for status change (max 60s)
+            log.info("PIPELINE: Job %d: Polling DB for status=tailored (up to 60s)...", jid)
+            new_status: str | None = None
+            for _ in range(30):
+                time.sleep(2)
+                new_status = get_job_status(db_path, jid)
+                if new_status == "tailored":
+                    log.info("PIPELINE: Job %d: DB status confirmed = tailored", jid)
+                    break
+            else:
+                log.warning("PIPELINE: Job %d: DB polling timed out (60s). Status = %s", jid, new_status)
+
+            if new_status != "tailored":
+                log.error("PIPELINE: Job %d: Status still '%s' after tailor agent. Skipping apply.",
+                          jid, new_status)
+                results["tailor_failed"] += 1
+                continue
+
+            log.info("PIPELINE: Job %d: Tailor complete. Status = tailored", jid)
+            notify(f"Tailored: Job {jid} ({job['company']} - {job['title']})", log, channel_id)
+        else:
+            log.info("PIPELINE: === Apply job %d (%s @ %s) [%d/%d] (already tailored) ===",
+                     jid, job["title"], job["company"], i + 1, total)
+
+        # ── Apply phase ───────────────────────────────────────────────────
+        if time.monotonic() > deadline:
+            log.warning("PIPELINE: Timeout reached (%d min). Stopping before apply.", args.timeout)
+            notify(f"Pipeline timeout ({args.timeout}min) reached. Stopping.", log, channel_id)
+            break
 
         resume_path = DATA_DIR / "resumes" / str(jid) / "tailored.md"
         pdf_path = DATA_DIR / "resumes" / str(jid) / "resume.pdf"
