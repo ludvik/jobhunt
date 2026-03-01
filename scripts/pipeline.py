@@ -292,16 +292,16 @@ def main() -> None:
         if not db_path.exists():
             log.info("PIPELINE: DB not found — no jobs to process.")
             sys.exit(0)
-        queue_tailor = get_eligible_jobs(db_path, limit)
-        remaining = limit - len(queue_tailor)
-        queue_apply = get_tailored_jobs(db_path, remaining)
+        queue_apply = get_tailored_jobs(db_path, limit)
+        remaining = limit - len(queue_apply)
+        queue_tailor = get_eligible_jobs(db_path, remaining) if remaining > 0 else []
 
     total = len(queue_tailor) + len(queue_apply)
     if total == 0:
         log.info("PIPELINE: No eligible jobs. Exiting.")
         sys.exit(0)
 
-    log.info("PIPELINE: Queue — tailor: %d, apply: %d", len(queue_tailor), len(queue_apply))
+    log.info("PIPELINE: Queue — %d to apply (existing tailored), %d to tailor (new)", len(queue_apply), len(queue_tailor))
     notify(f"Pipeline starting — {len(queue_tailor)} to tailor, {len(queue_apply)} to apply", log, channel_id)
 
     if args.dry_run:
