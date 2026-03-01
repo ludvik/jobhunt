@@ -209,6 +209,7 @@ def main() -> None:
                         help="Plan only — no agent calls, no DB changes")
     parser.add_argument("--job-id", type=int, help="Process a single job by ID")
     parser.add_argument("--limit", type=int, help="Max jobs to process (overrides config)")
+    parser.add_argument("--timeout", type=int, default=50, help="Pipeline timeout in minutes")
     parser.add_argument("--verbose", action="store_true", help="Debug logging")
     parser.add_argument("--skip-fetch", action="store_true", help="Skip fetch step")
     args = parser.parse_args()
