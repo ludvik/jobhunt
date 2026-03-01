@@ -28,4 +28,19 @@ Critical rules:
 - Form experience entries MUST match `$data_dir/resumes/$job_id/tailored.md`
 - Log every action to: `$data_dir/logs/pipeline.log`
 
+## Post-Apply Reflection
+
+After completing the application (regardless of outcome), reflect on the session:
+
+1. **Platform lessons**: Did you encounter any platform-specific patterns, tricks, or gotchas?
+   - If yes, append them to the relevant platform knowledge file: `$skill_dir/references/platforms/<platform>.md`
+   - If the platform file doesn't exist, create it
+   - Only add NEW insights not already documented
+
+2. **Difficulties report**: If you encountered blockers, unexpected UI, or failures:
+   - Send a concise report to Discord: `openclaw message send --channel discord --target $discord_channel --message "Apply Agent Report (Job $job_id - $company): <description of difficulty and what you tried>"`
+   - Include: what went wrong, what you tried, and suggestions for improvement
+
+3. **Success patterns**: If the application went smoothly, no action needed — don't report on routine successes.
+
 Final status MUST be one of: applied | blocked | apply_failed

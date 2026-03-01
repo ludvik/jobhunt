@@ -395,6 +395,7 @@ def main() -> None:
             "skill_dir": str(SKILL_DIR),
             "data_dir": str(DATA_DIR),
             "resume_path": final_resume,
+            "discord_channel": pipeline_cfg.get("discord_channel", _DEFAULT_DISCORD_CHANNEL),
         }
         prompt = load_prompt("apply", prompt_vars)
         timeout = apply_cfg.get("apply_timeout", 1200)
