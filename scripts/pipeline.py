@@ -217,7 +217,7 @@ def _count_total_jobs(db_path: Path) -> int:
 
 def classify_new_jobs(db_path: Path, config: dict, log: logging.Logger,
                       channel_id: str = _DEFAULT_DISCORD_CHANNEL) -> None:
-    """Filter new jobs by title/level/salary rules, marking irrelevant ones as 'skipped'."""
+    """Filter new jobs using exclude-pattern blacklist, marking irrelevant ones as not_suitable."""
     import re as _re
 
     classify_cfg = config.get("classify", {})
@@ -225,40 +225,12 @@ def classify_new_jobs(db_path: Path, config: dict, log: logging.Logger,
         log.info("PIPELINE: Classification disabled — skipping.")
         return
 
-    title_patterns = [_re.compile(p, _re.IGNORECASE) for p in classify_cfg.get("title_patterns", [])]
-    min_level = [kw.lower() for kw in classify_cfg.get("min_level", [])]
-    min_salary = classify_cfg.get("min_salary", 0)
+    exclude_patterns = classify_cfg.get("exclude_patterns", [])
+    if not exclude_patterns:
+        log.info("PIPELINE: No exclude_patterns configured — skipping classification.")
+        return
 
-    # Salary extraction: matches $180,000 / $180K / 180,000/year / $180000
-    _salary_re = _re.compile(
-        r"\$?([0-9]{2,3}(?:,[0-9]{3})*(?:\.[0-9]+)?|[0-9]+)[kK]?(?:\s*/\s*(?:year|yr|annual))?",
-        _re.IGNORECASE,
-    )
-    _dollar_re = _re.compile(r"\$[0-9]")
-
-    def _parse_salaries(text: str) -> list[float]:
-        """Return list of salary figures found in text (in dollars)."""
-        if not text:
-            return []
-        results = []
-        for m in _salary_re.finditer(text):
-            raw = m.group(0)
-            # Only consider values that look like salary amounts (preceded by $ or followed by K)
-            num_str = m.group(1).replace(",", "")
-            try:
-                val = float(num_str)
-            except ValueError:
-                continue
-            if raw.startswith("$") or raw.lower().endswith("k"):
-                if raw.lower().endswith("k") and not raw.startswith("$"):
-                    # bare number with K suffix — check surroundings
-                    pass
-                if raw.lower().endswith("k"):
-                    val *= 1000
-                # Plausible salary range: $30k–$2M
-                if 30_000 <= val <= 2_000_000:
-                    results.append(val)
-        return results
+    compiled = [_re.compile(p, _re.IGNORECASE) for p in exclude_patterns]
 
     if not db_path.exists():
         log.info("PIPELINE: DB not found — skipping classification.")
@@ -267,7 +239,7 @@ def classify_new_jobs(db_path: Path, config: dict, log: logging.Logger,
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT id, title, company, jd_text FROM jobs WHERE status='new'"
+            "SELECT id, title, company FROM jobs WHERE status='new'"
         ).fetchall()
 
     kept = 0
@@ -278,29 +250,16 @@ def classify_new_jobs(db_path: Path, config: dict, log: logging.Logger,
         job_id = row["id"]
         title = row["title"] or ""
         company = row["company"] or ""
-        description = row["jd_text"] or ""
 
-        reason = None
+        matched_pattern = None
+        for pat in compiled:
+            if pat.search(title):
+                matched_pattern = pat.pattern
+                break
 
-        # 1. Title pattern match (REQUIRED)
-        if title_patterns and not any(p.search(title) for p in title_patterns):
-            reason = "title_mismatch"
-
-        # 2. Level keyword match (REQUIRED)
-        if reason is None and min_level:
-            title_lower = title.lower()
-            if not any(kw in title_lower for kw in min_level):
-                reason = "level_mismatch"
-
-        # 3. Salary check (OPTIONAL — only skip if salary mentioned and ALL below min)
-        if reason is None and min_salary:
-            salaries = _parse_salaries(description)
-            if salaries and all(s < min_salary for s in salaries):
-                reason = "salary_below_min"
-
-        if reason:
-            log.info("PIPELINE: Filtered job %d (%s @ %s) — reason: %s",
-                     job_id, title, company, reason)
+        if matched_pattern:
+            log.info("PIPELINE: Filtered job %d (%s @ %s) — matched: %s",
+                     job_id, title, company, matched_pattern)
             with sqlite3.connect(db_path) as conn:
                 conn.execute(
                     "UPDATE jobs SET status='not_suitable', status_updated_at=datetime('now') WHERE id=?",
@@ -310,10 +269,11 @@ def classify_new_jobs(db_path: Path, config: dict, log: logging.Logger,
         else:
             kept += 1
 
-    log.info("PIPELINE: Classification complete — %d kept, %d skipped out of %d new jobs",
+    log.info("PIPELINE: Classification complete — %d kept, %d filtered out of %d new jobs",
              kept, skipped, total)
-    notify(f"Classification complete — {kept} kept, {skipped} skipped out of {total} new jobs",
-           log, channel_id)
+    if skipped > 0:
+        notify(f"Classification: {kept} kept, {skipped} filtered out of {total} new jobs",
+               log, channel_id)
 
 
 def run_fetch(config: dict, dry_run: bool, log: logging.Logger,
