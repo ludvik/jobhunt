@@ -2,7 +2,7 @@
 # User overrides: ~/.openclaw/data/jobhunt/config.yaml (same schema, partial allowed)
 
 pipeline:
-  limit: 10
+  limit: 30
   tailor_timeout: 600
   apply_timeout: 1200
   thinking_level: "low"
