@@ -267,7 +267,7 @@ def classify_new_jobs(db_path: Path, config: dict, log: logging.Logger,
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT id, title, company, description FROM jobs WHERE status='new'"
+            "SELECT id, title, company, jd_text FROM jobs WHERE status='new'"
         ).fetchall()
 
     kept = 0
@@ -278,7 +278,7 @@ def classify_new_jobs(db_path: Path, config: dict, log: logging.Logger,
         job_id = row["id"]
         title = row["title"] or ""
         company = row["company"] or ""
-        description = row["description"] or ""
+        description = row["jd_text"] or ""
 
         reason = None
 
@@ -299,11 +299,11 @@ def classify_new_jobs(db_path: Path, config: dict, log: logging.Logger,
                 reason = "salary_below_min"
 
         if reason:
-            log.info("PIPELINE: Skipped job %d (%s @ %s) — reason: %s",
+            log.info("PIPELINE: Filtered job %d (%s @ %s) — reason: %s",
                      job_id, title, company, reason)
             with sqlite3.connect(db_path) as conn:
                 conn.execute(
-                    "UPDATE jobs SET status='skipped', status_updated_at=datetime('now') WHERE id=?",
+                    "UPDATE jobs SET status='not_suitable', status_updated_at=datetime('now') WHERE id=?",
                     (job_id,)
                 )
             skipped += 1

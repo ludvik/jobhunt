@@ -1,85 +1,93 @@
-# jobhunt/config.yaml — skill-dir defaults
-# User overrides: ~/.openclaw/data/jobhunt/config.yaml (same schema, partial allowed)
-
 pipeline:
-  limit: 10                   # max jobs to process per pipeline run
-  tailor_timeout: 600         # seconds for openclaw agent tailor call
-  apply_timeout: 1200         # seconds for openclaw agent apply call
-  thinking_level: "low"       # off | minimal | low | medium | high
-
+  limit: 10
+  tailor_timeout: 600
+  apply_timeout: 1200
+  thinking_level: low
 fetch:
-  limit: 10                   # --limit passed to fetcher
-  lookback: 7                # --lookback days
+  limit: 10
+  lookback: 7
   urls:
-    - name: recommended
-      url: "https://www.linkedin.com/jobs/collections/recommended/"
-    - name: unicorn-companies
-      url: "https://www.linkedin.com/jobs/collections/unicorn-companies/"
-    - name: top-startups
-      url: "https://www.linkedin.com/jobs/collections/top-startups/"
-    - name: gen-ai
-      url: "https://www.linkedin.com/jobs/collections/gen-ai/"
-    - name: ai-and-ml
-      url: "https://www.linkedin.com/jobs/collections/ai-and-ml/"
-    - name: sustainability
-      url: "https://www.linkedin.com/jobs/collections/sustainability/"
-    - name: remote-jobs
-      url: "https://www.linkedin.com/jobs/collections/remote-jobs/"
-    - name: manufacturing
-      url: "https://www.linkedin.com/jobs/collections/manufacturing/"
-    - name: small-business
-      url: "https://www.linkedin.com/jobs/collections/small-business/"
-    - name: climate-and-cleantech
-      url: "https://www.linkedin.com/jobs/collections/climate-and-cleantech/"
-    - name: mobility-tech
-      url: "https://www.linkedin.com/jobs/collections/mobility-tech/"
-    - name: yc-funded
-      url: "https://www.linkedin.com/jobs/collections/yc-funded/"
-    - name: real-estate
-      url: "https://www.linkedin.com/jobs/collections/real-estate/"
-    - name: top-retail
-      url: "https://www.linkedin.com/jobs/collections/top-retail/"
-
+  - name: recommended
+    url: https://www.linkedin.com/jobs/collections/recommended/
+  - name: unicorn-companies
+    url: https://www.linkedin.com/jobs/collections/unicorn-companies/
+  - name: top-startups
+    url: https://www.linkedin.com/jobs/collections/top-startups/
+  - name: gen-ai
+    url: https://www.linkedin.com/jobs/collections/gen-ai/
+  - name: ai-and-ml
+    url: https://www.linkedin.com/jobs/collections/ai-and-ml/
+  - name: sustainability
+    url: https://www.linkedin.com/jobs/collections/sustainability/
+  - name: remote-jobs
+    url: https://www.linkedin.com/jobs/collections/remote-jobs/
+  - name: manufacturing
+    url: https://www.linkedin.com/jobs/collections/manufacturing/
+  - name: small-business
+    url: https://www.linkedin.com/jobs/collections/small-business/
+  - name: climate-and-cleantech
+    url: https://www.linkedin.com/jobs/collections/climate-and-cleantech/
+  - name: mobility-tech
+    url: https://www.linkedin.com/jobs/collections/mobility-tech/
+  - name: yc-funded
+    url: https://www.linkedin.com/jobs/collections/yc-funded/
+  - name: real-estate
+    url: https://www.linkedin.com/jobs/collections/real-estate/
+  - name: top-retail
+    url: https://www.linkedin.com/jobs/collections/top-retail/
 logging:
-  level: "INFO"               # DEBUG | INFO | WARN | ERROR
-  log_file: null              # null = use default ~/.openclaw/data/jobhunt/logs/pipeline.log
-
+  level: INFO
+  log_file: null
 classify:
   enabled: true
   title_patterns:
-    - "software engineer"
-    - "staff.*(engineer|developer)"
-    - "principal.*(engineer|developer|architect)"
-    - "founding engineer"
-    - "engineering manager"
-    - "director.*(engineering|technology|software)"
-    - "vp.*(engineering|technology)"
-    - "cto"
-    - "chief technology"
-    - "architect"
-    - "machine learning"
-    - "ml engineer"
-    - "ai engineer"
-    - "data.*(scientist|engineer)"
-    - "platform engineer"
-    - "infrastructure engineer"
-    - "devops"
-    - "sre"
-    - "site reliability"
-    - "backend engineer"
-    - "frontend engineer"
-    - "fullstack"
-    - "full.stack"
+  - software engineer
+  - software dev
+  - sde
+  - staff.*(engineer|developer)
+  - principal.*(engineer|developer|architect|scientist)
+  - founding engineer
+  - distinguished.*(engineer|fellow)
+  - member of technical staff
+  - technical fellow
+  - engineering manager
+  - director.*(engineering|technology|software)
+  - vp.*(engineering|technology)
+  - cto
+  - chief technology
+  - architect
+  - machine learning
+  - ml engineer
+  - ml ops
+  - ai engineer
+  - data.*(scientist|engineer)
+  - platform engineer
+  - infrastructure engineer
+  - devops
+  - sre
+  - site reliability
+  - backend engineer
+  - frontend engineer
+  - fullstack
+  - full.stack
+  - tech lead
+  - forward deployed
   min_salary: 180000
   min_level:
-    - "staff"
-    - "principal"
-    - "senior"
-    - "lead"
-    - "founding"
-    - "manager"
-    - "director"
-    - "vp"
-    - "cto"
-    - "head"
-    - "chief"
+  - staff
+  - principal
+  - senior
+  - sr.
+  - 'sr '
+  - lead
+  - founding
+  - manager
+  - director
+  - distinguished
+  - fellow
+  - vp
+  - cto
+  - head
+  - chief
+  - member of technical staff
+  - consulting member

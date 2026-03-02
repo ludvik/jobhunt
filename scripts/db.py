@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     jd_text           TEXT,
     jd_hash           TEXT    NOT NULL,
     status            TEXT    NOT NULL DEFAULT 'new'
-                      CHECK(status IN ('new','skipped','tailored','blocked','apply_failed','applied')),
+                      CHECK(status IN ('new','skipped','not_suitable','tailored','blocked','apply_failed','applied')),
     fetched_at        TEXT    NOT NULL,
     updated_at        TEXT,
     status_updated_at TEXT,
@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS job_notes (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     job_id        INTEGER NOT NULL,
     created_at    TEXT    NOT NULL,
-    status_after  TEXT    NOT NULL CHECK(status_after IN ('new','skipped','tailored','blocked','apply_failed','applied')),
+    status_after  TEXT    NOT NULL CHECK(status_after IN ('new','skipped','not_suitable','tailored','blocked','apply_failed','applied')),
     content       TEXT    NOT NULL,
     source        TEXT    NOT NULL DEFAULT 'cli',
     FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
@@ -71,7 +71,7 @@ _VALID_SORT_FIELDS = {"id", "title", "company", "posted_at", "fetched_at", "stat
 # ---------------------------------------------------------------------------
 
 ALLOWED_TRANSITIONS: dict[str, list[str]] = {
-    "new": ["skipped", "tailored"],
+    "new": ["skipped", "not_suitable", "tailored"],
     "tailored": ["blocked", "apply_failed", "applied"],
     "blocked": ["tailored", "applied"],
     "apply_failed": ["applied"],
