@@ -1,0 +1,5 @@
+# LinkedIn Easy Apply Platform Notes
+
+- **2026-03-01 (Job 83 - Okta, LinkedIn job page in iframe modal flow)**: LinkedIn job detail page may render key elements inside nested iframes. A snapshot at page root often shows `iframe [ref=e685]` containing active Easy Apply content, and role snapshots with `refs: aria` appear to ignore iframe content. In this run, only `refs: role` + `frame` targeting could expose form fields but the browser service became unreachable before field capture.
+- **2026-03-01 (Job 83)**: After clicking Easy Apply and entering the modal, repeated snapshot/interaction attempts may produce timeout/unreachable browser control errors from OpenClaw browser, indicating this modal can be sensitive to extended DOM snapshots and may require minimal-step, quick snapshots + immediate interaction.
+- **Practice note**: If modal enters unreachable state before field interaction, do not attempt further retries inside the same run; treat as a blocker and report, then escalate for human-assisted re-run or service recovery.

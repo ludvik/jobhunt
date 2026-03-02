@@ -8,8 +8,8 @@ pipeline:
   thinking_level: "low"       # off | minimal | low | medium | high
 
 fetch:
-  limit: 30                   # --limit passed to fetcher
-  lookback: 14                # --lookback days
+  limit: 10                   # --limit passed to fetcher
+  lookback: 7                # --lookback days
   urls:
     - name: recommended
       url: "https://www.linkedin.com/jobs/collections/recommended/"
@@ -35,6 +35,10 @@ fetch:
       url: "https://www.linkedin.com/jobs/collections/mobility-tech/"
     - name: yc-funded
       url: "https://www.linkedin.com/jobs/collections/yc-funded/"
+    - name: real-estate
+      url: "https://www.linkedin.com/jobs/collections/real-estate/"
+    - name: top-retail
+      url: "https://www.linkedin.com/jobs/collections/top-retail/"
 
 logging:
   level: "INFO"               # DEBUG | INFO | WARN | ERROR

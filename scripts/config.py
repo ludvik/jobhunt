@@ -41,8 +41,8 @@ DEFAULT_CONFIG: dict = {
         }
     },
     "fetch": {
-        "limit": 30,
-        "lookback": 14,
+        "limit": 10,
+        "lookback": 7,
         "urls": [
             {"name": "recommended", "url": "https://www.linkedin.com/jobs/collections/recommended/"},
             {"name": "unicorn-companies", "url": "https://www.linkedin.com/jobs/collections/unicorn-companies/"},
@@ -56,6 +56,8 @@ DEFAULT_CONFIG: dict = {
             {"name": "climate-and-cleantech", "url": "https://www.linkedin.com/jobs/collections/climate-and-cleantech/"},
             {"name": "mobility-tech", "url": "https://www.linkedin.com/jobs/collections/mobility-tech/"},
             {"name": "yc-funded", "url": "https://www.linkedin.com/jobs/collections/yc-funded/"},
+            {"name": "real-estate", "url": "https://www.linkedin.com/jobs/collections/real-estate/"},
+            {"name": "top-retail", "url": "https://www.linkedin.com/jobs/collections/top-retail/"},
         ],
     },
     "openai": {
