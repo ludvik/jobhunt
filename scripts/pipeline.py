@@ -205,6 +205,15 @@ def count_new_jobs(db_path: Path) -> int:
         return 0
 
 
+def _count_total_jobs(db_path: Path) -> int:
+    try:
+        with sqlite3.connect(db_path) as conn:
+            row = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()
+        return row[0] if row else 0
+    except Exception:
+        return 0
+
+
 def run_fetch(config: dict, dry_run: bool, log: logging.Logger,
               skill_dir: Path = SKILL_DIR, db_path: Path = DATA_DIR / "jobhunt.db",
               channel_id: str = _DEFAULT_DISCORD_CHANNEL) -> None:
@@ -219,6 +228,13 @@ def run_fetch(config: dict, dry_run: bool, log: logging.Logger,
             "fetch_url", "https://www.linkedin.com/jobs/collections/recommended/"
         )
         fetch_urls = [{"name": "recommended", "url": fallback_url}]
+
+    # Write fetch output to dedicated log file
+    fetch_log_path = DATA_DIR / "logs" / "fetch.log"
+    fetch_log_path.parent.mkdir(parents=True, exist_ok=True)
+    _fh = logging.FileHandler(str(fetch_log_path), mode="a")
+    _fh.setFormatter(logging.Formatter("[%(asctime)s] %(message)s", datefmt="%Y-%m-%dT%H:%M:%SZ"))
+    log.addHandler(_fh)
 
     log.info("PIPELINE: Running fetch for %d collection(s), --limit %d --lookback %d",
              len(fetch_urls), limit, lookback)
@@ -235,7 +251,9 @@ def run_fetch(config: dict, dry_run: bool, log: logging.Logger,
     for i, entry in enumerate(fetch_urls, 1):
         name = entry.get("name", "?") if isinstance(entry, dict) else "?"
         url = entry.get("url", entry) if isinstance(entry, dict) else entry
-        log.info("PIPELINE: Fetching collection %d/%d: %s (%s)", i, len(fetch_urls), name, url)
+        log.info("PIPELINE: Fetching collection %d/%d: %s", i, len(fetch_urls), name)
+        count_before = count_new_jobs(db_path)
+        total_before = _count_total_jobs(db_path)
         try:
             result = subprocess.run(
                 ["uv", "run", "--directory", str(skill_dir), "python", "scripts/cli.py",
@@ -246,26 +264,26 @@ def run_fetch(config: dict, dry_run: bool, log: logging.Logger,
                 timeout=300,  # 5 min max per collection
             )
             if result.returncode != 0:
-                log.warning("PIPELINE: Fetch collection '%s' exited %d: %s",
-                            name, result.returncode, result.stderr[:300])
+                log.warning("PIPELINE: Collection '%s' FAILED (exit %d): %s",
+                            name, result.returncode, result.stderr[:200])
             else:
-                # Parse summary from CLI output (e.g. "✓ Run complete: 2 new, 0 updated, 1 skipped, 0 errors")
-                summary = ""
-                for line in result.stdout.splitlines():
-                    if "Run complete" in line:
-                        summary = line.strip()
-                        break
-                log.info("PIPELINE: Collection '%s' done — %s", name, summary or "(no summary)")
+                total_after = _count_total_jobs(db_path)
+                new_added = total_after - total_before
+                duplicated = limit - new_added  # approximate: limit attempted minus new
+                log.info("PIPELINE: Collection '%s' done — %d new, %d total",
+                         name, new_added, total_after)
         except subprocess.TimeoutExpired:
-            log.warning("PIPELINE: Fetch collection '%s' timed out (300s), skipping", name)
+            log.warning("PIPELINE: Collection '%s' timed out (300s), skipping", name)
         except Exception as exc:
-            log.warning("PIPELINE: Fetch collection '%s' failed: %s", name, exc)
+            log.warning("PIPELINE: Collection '%s' failed: %s", name, exc)
 
     after = count_new_jobs(db_path)
     newly = after - before
     log.info("PIPELINE: After all fetches: %d new jobs (%d newly fetched)", after, newly)
     notify(f"Fetch complete ({len(fetch_urls)} collections). {before} -> {after} new jobs ({newly} newly fetched)",
            log, channel_id)
+    log.removeHandler(_fh)
+    _fh.close()
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
