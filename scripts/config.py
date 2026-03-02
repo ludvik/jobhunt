@@ -67,6 +67,39 @@ DEFAULT_CONFIG: dict = {
     "tailor": {
         "resume_factory_path": "~/code/openclaw-tools/resume-factory",
     },
+    "classify": {
+        "enabled": True,
+        "title_patterns": [
+            "software engineer",
+            "staff.*(engineer|developer)",
+            "principal.*(engineer|developer|architect)",
+            "founding engineer",
+            "engineering manager",
+            "director.*(engineering|technology|software)",
+            "vp.*(engineering|technology)",
+            "cto",
+            "chief technology",
+            "architect",
+            "machine learning",
+            "ml engineer",
+            "ai engineer",
+            "data.*(scientist|engineer)",
+            "platform engineer",
+            "infrastructure engineer",
+            "devops",
+            "sre",
+            "site reliability",
+            "backend engineer",
+            "frontend engineer",
+            "fullstack",
+            "full.stack",
+        ],
+        "min_salary": 180000,
+        "min_level": [
+            "staff", "principal", "senior", "lead", "founding",
+            "manager", "director", "vp", "cto", "head", "chief",
+        ],
+    },
 }
 
 # ---------------------------------------------------------------------------

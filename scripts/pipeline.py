@@ -159,7 +159,7 @@ def get_eligible_jobs(db_path: Path, limit: int) -> list[dict]:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT id, title, company, job_url AS url, status FROM jobs "
-            "WHERE status='new' ORDER BY fetched_at DESC LIMIT ?",
+            "WHERE status='new' ORDER BY id DESC LIMIT ?",
             (limit,)
         ).fetchall()
     return [dict(r) for r in rows]
@@ -173,7 +173,7 @@ def get_tailored_jobs(db_path: Path, limit: int, data_dir: Path = DATA_DIR) -> l
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT id, title, company, job_url AS url, status FROM jobs "
-            "WHERE status='tailored' ORDER BY fetched_at DESC LIMIT ?",
+            "WHERE status='tailored' ORDER BY id DESC LIMIT ?",
             (limit,)
         ).fetchall()
     jobs = [dict(r) for r in rows]
@@ -212,6 +212,108 @@ def _count_total_jobs(db_path: Path) -> int:
         return row[0] if row else 0
     except Exception:
         return 0
+
+
+
+def classify_new_jobs(db_path: Path, config: dict, log: logging.Logger,
+                      channel_id: str = _DEFAULT_DISCORD_CHANNEL) -> None:
+    """Filter new jobs by title/level/salary rules, marking irrelevant ones as 'skipped'."""
+    import re as _re
+
+    classify_cfg = config.get("classify", {})
+    if not classify_cfg.get("enabled", True):
+        log.info("PIPELINE: Classification disabled — skipping.")
+        return
+
+    title_patterns = [_re.compile(p, _re.IGNORECASE) for p in classify_cfg.get("title_patterns", [])]
+    min_level = [kw.lower() for kw in classify_cfg.get("min_level", [])]
+    min_salary = classify_cfg.get("min_salary", 0)
+
+    # Salary extraction: matches $180,000 / $180K / 180,000/year / $180000
+    _salary_re = _re.compile(
+        r"\$?([0-9]{2,3}(?:,[0-9]{3})*(?:\.[0-9]+)?|[0-9]+)[kK]?(?:\s*/\s*(?:year|yr|annual))?",
+        _re.IGNORECASE,
+    )
+    _dollar_re = _re.compile(r"\$[0-9]")
+
+    def _parse_salaries(text: str) -> list[float]:
+        """Return list of salary figures found in text (in dollars)."""
+        if not text:
+            return []
+        results = []
+        for m in _salary_re.finditer(text):
+            raw = m.group(0)
+            # Only consider values that look like salary amounts (preceded by $ or followed by K)
+            num_str = m.group(1).replace(",", "")
+            try:
+                val = float(num_str)
+            except ValueError:
+                continue
+            if raw.startswith("$") or raw.lower().endswith("k"):
+                if raw.lower().endswith("k") and not raw.startswith("$"):
+                    # bare number with K suffix — check surroundings
+                    pass
+                if raw.lower().endswith("k"):
+                    val *= 1000
+                # Plausible salary range: $30k–$2M
+                if 30_000 <= val <= 2_000_000:
+                    results.append(val)
+        return results
+
+    if not db_path.exists():
+        log.info("PIPELINE: DB not found — skipping classification.")
+        return
+
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT id, title, company, description FROM jobs WHERE status='new'"
+        ).fetchall()
+
+    kept = 0
+    skipped = 0
+    total = len(rows)
+
+    for row in rows:
+        job_id = row["id"]
+        title = row["title"] or ""
+        company = row["company"] or ""
+        description = row["description"] or ""
+
+        reason = None
+
+        # 1. Title pattern match (REQUIRED)
+        if title_patterns and not any(p.search(title) for p in title_patterns):
+            reason = "title_mismatch"
+
+        # 2. Level keyword match (REQUIRED)
+        if reason is None and min_level:
+            title_lower = title.lower()
+            if not any(kw in title_lower for kw in min_level):
+                reason = "level_mismatch"
+
+        # 3. Salary check (OPTIONAL — only skip if salary mentioned and ALL below min)
+        if reason is None and min_salary:
+            salaries = _parse_salaries(description)
+            if salaries and all(s < min_salary for s in salaries):
+                reason = "salary_below_min"
+
+        if reason:
+            log.info("PIPELINE: Skipped job %d (%s @ %s) — reason: %s",
+                     job_id, title, company, reason)
+            with sqlite3.connect(db_path) as conn:
+                conn.execute(
+                    "UPDATE jobs SET status='skipped', status_updated_at=datetime('now') WHERE id=?",
+                    (job_id,)
+                )
+            skipped += 1
+        else:
+            kept += 1
+
+    log.info("PIPELINE: Classification complete — %d kept, %d skipped out of %d new jobs",
+             kept, skipped, total)
+    notify(f"Classification complete — {kept} kept, {skipped} skipped out of {total} new jobs",
+           log, channel_id)
 
 
 def run_fetch(config: dict, dry_run: bool, log: logging.Logger,
@@ -319,6 +421,10 @@ def main() -> None:
     if not args.skip_fetch and not args.job_id:
         run_fetch(config, args.dry_run, log, channel_id=channel_id)
 
+    # Step 1b: Classify new jobs (filter irrelevant ones)
+    if not args.job_id:
+        classify_new_jobs(db_path, config, log, channel_id=channel_id)
+
     # Step 2: Determine job queue
     if args.job_id:
         if not db_path.exists():
@@ -349,8 +455,8 @@ def main() -> None:
         remaining = limit - len(queue_apply)
         queue_tailor = get_eligible_jobs(db_path, remaining) if remaining > 0 else []
 
-    # Build unified queue: tailored first (closer to done), then new
-    unified_queue = queue_apply + queue_tailor
+    # Build unified queue: new jobs first (newest first), then tailored
+    unified_queue = queue_tailor + queue_apply
     total = len(unified_queue)
     if total == 0:
         log.info("PIPELINE: No eligible jobs. Exiting.")
