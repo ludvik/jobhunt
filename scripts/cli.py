@@ -356,3 +356,7 @@ def _db_path():
     """Return the DB_PATH constant (deferred import avoids circular issues)."""
     from scripts.config import DB_PATH
     return DB_PATH
+
+
+if __name__ == "__main__":
+    main()

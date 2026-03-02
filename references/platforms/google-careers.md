@@ -49,3 +49,10 @@ Steps 1 and 3 are often pre-filled/completed from prior applications.
 ## Work Authorization for Haomin
 - Legally eligible: Yes
 - Needs sponsorship: No
+
+## Application Limit
+
+- **Hard limit: 3 applications per 30-day rolling window**
+- When limit is reached, clicking Apply redirects to the Applications dashboard with a warning banner: "You can't submit an application at this time. You've reached the limit of 3 applications in a 30 day window."
+- No way to override or bypass — must wait for existing applications to age out
+- Set status = `blocked` with note explaining the limit and retry date
