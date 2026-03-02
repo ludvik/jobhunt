@@ -99,8 +99,9 @@ ctx_cmd_config = cmd_config  # noqa: F841 (used above)
 @click.option("--lookback", default=30, show_default=True, help="Only ingest jobs posted within N days.")
 @click.option("--dry-run", is_flag=True, help="Scrape without writing to the database.")
 @click.option("--verbose", is_flag=True, help="Print per-job status lines.")
-def cmd_fetch(limit: int, lookback: int, dry_run: bool, verbose: bool) -> None:
-    """Scrape LinkedIn recommended jobs and store new postings."""
+@click.option("--url", default=None, help="Fetch a single URL instead of all configured URLs.")
+def cmd_fetch(limit: int, lookback: int, dry_run: bool, verbose: bool, url: str | None) -> None:
+    """Scrape LinkedIn job collections and store new postings."""
     from scripts import auth, fetcher
     from scripts.config import load_config
     from scripts import db as db_module
@@ -113,13 +114,45 @@ def cmd_fetch(limit: int, lookback: int, dry_run: bool, verbose: bool) -> None:
     # FR-02: ensure session exists (auto-auth if missing)
     auth.ensure_session(config)
 
-    fetcher.run_fetch(
-        config=config,
-        limit=limit,
-        lookback=lookback,
-        dry_run=dry_run,
-        verbose=verbose,
-    )
+    if url:
+        # Fetch a single specific URL
+        fetcher.run_fetch(
+            config=config,
+            limit=limit,
+            lookback=lookback,
+            dry_run=dry_run,
+            verbose=verbose,
+            fetch_url=url,
+        )
+    else:
+        # Fetch all configured URLs
+        fetch_urls = config.get("fetch", {}).get("urls", [])
+        if not fetch_urls:
+            # Fall back to single recommended URL (backward compat)
+            fallback_url = (
+                config.get("sources", {}).get("linkedin", {}).get(
+                    "fetch_url", "https://www.linkedin.com/jobs/collections/recommended/"
+                )
+            )
+            fetcher.run_fetch(
+                config=config,
+                limit=limit,
+                lookback=lookback,
+                dry_run=dry_run,
+                verbose=verbose,
+                fetch_url=fallback_url,
+            )
+        else:
+            for entry in fetch_urls:
+                fetch_url = entry["url"] if isinstance(entry, dict) else entry
+                fetcher.run_fetch(
+                    config=config,
+                    limit=limit,
+                    lookback=lookback,
+                    dry_run=dry_run,
+                    verbose=verbose,
+                    fetch_url=fetch_url,
+                )
 
 
 # ---------------------------------------------------------------------------

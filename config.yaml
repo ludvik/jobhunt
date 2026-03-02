@@ -10,6 +10,31 @@ pipeline:
 fetch:
   limit: 30                   # --limit passed to fetcher
   lookback: 14                # --lookback days
+  urls:
+    - name: recommended
+      url: "https://www.linkedin.com/jobs/collections/recommended/"
+    - name: unicorn-companies
+      url: "https://www.linkedin.com/jobs/collections/unicorn-companies/"
+    - name: top-startups
+      url: "https://www.linkedin.com/jobs/collections/top-startups/"
+    - name: gen-ai
+      url: "https://www.linkedin.com/jobs/collections/gen-ai/"
+    - name: ai-and-ml
+      url: "https://www.linkedin.com/jobs/collections/ai-and-ml/"
+    - name: sustainability
+      url: "https://www.linkedin.com/jobs/collections/sustainability/"
+    - name: remote-jobs
+      url: "https://www.linkedin.com/jobs/collections/remote-jobs/"
+    - name: manufacturing
+      url: "https://www.linkedin.com/jobs/collections/manufacturing/"
+    - name: small-business
+      url: "https://www.linkedin.com/jobs/collections/small-business/"
+    - name: climate-and-cleantech
+      url: "https://www.linkedin.com/jobs/collections/climate-and-cleantech/"
+    - name: mobility-tech
+      url: "https://www.linkedin.com/jobs/collections/mobility-tech/"
+    - name: yc-funded
+      url: "https://www.linkedin.com/jobs/collections/yc-funded/"
 
 logging:
   level: "INFO"               # DEBUG | INFO | WARN | ERROR

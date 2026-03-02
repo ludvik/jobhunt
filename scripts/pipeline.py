@@ -211,26 +211,49 @@ def run_fetch(config: dict, dry_run: bool, log: logging.Logger,
     fetch_cfg = config.get("fetch", {})
     limit = fetch_cfg.get("limit", 30)
     lookback = fetch_cfg.get("lookback", 14)
-    log.info("PIPELINE: Running fetch --limit %d --lookback %d", limit, lookback)
+    fetch_urls = fetch_cfg.get("urls", [])
+
+    if not fetch_urls:
+        # Fall back to single recommended URL (backward compat)
+        fallback_url = config.get("sources", {}).get("linkedin", {}).get(
+            "fetch_url", "https://www.linkedin.com/jobs/collections/recommended/"
+        )
+        fetch_urls = [{"name": "recommended", "url": fallback_url}]
+
+    log.info("PIPELINE: Running fetch for %d collection(s), --limit %d --lookback %d",
+             len(fetch_urls), limit, lookback)
     before = count_new_jobs(db_path)
     log.info("PIPELINE: Before fetch: %d new jobs", before)
+
     if dry_run:
-        log.info("PIPELINE: [DRY RUN] Skipping fetch")
+        for entry in fetch_urls:
+            name = entry.get("name", "?") if isinstance(entry, dict) else "?"
+            url = entry.get("url", entry) if isinstance(entry, dict) else entry
+            log.info("PIPELINE: [DRY RUN] Would fetch collection: %s (%s)", name, url)
         return
-    result = subprocess.run(
-        ["uv", "run", "--directory", str(skill_dir), "python", "scripts/cli.py",
-         "fetch", "--limit", str(limit), "--lookback", str(lookback)],
-        cwd=skill_dir,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        log.warning("PIPELINE: Fetch exited %d: %s", result.returncode, result.stderr[:300])
-    else:
-        after = count_new_jobs(db_path)
-        newly = after - before
-        log.info("PIPELINE: After fetch: %d new jobs (%d newly fetched)", after, newly)
-        notify(f"Fetch complete. {before} -> {after} new jobs ({after - before} newly fetched)", log, channel_id)
+
+    for entry in fetch_urls:
+        name = entry.get("name", "?") if isinstance(entry, dict) else "?"
+        url = entry.get("url", entry) if isinstance(entry, dict) else entry
+        log.info("PIPELINE: Fetching collection: %s (%s)", name, url)
+        result = subprocess.run(
+            ["uv", "run", "--directory", str(skill_dir), "python", "scripts/cli.py",
+             "fetch", "--limit", str(limit), "--lookback", str(lookback), "--url", url],
+            cwd=skill_dir,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            log.warning("PIPELINE: Fetch collection '%s' exited %d: %s",
+                        name, result.returncode, result.stderr[:300])
+        else:
+            log.info("PIPELINE: Collection '%s' fetch complete", name)
+
+    after = count_new_jobs(db_path)
+    newly = after - before
+    log.info("PIPELINE: After all fetches: %d new jobs (%d newly fetched)", after, newly)
+    notify(f"Fetch complete ({len(fetch_urls)} collections). {before} -> {after} new jobs ({newly} newly fetched)",
+           log, channel_id)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────

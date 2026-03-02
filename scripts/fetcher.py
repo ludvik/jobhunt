@@ -267,6 +267,7 @@ def run_fetch(
     lookback: int,
     dry_run: bool,
     verbose: bool,
+    fetch_url: str | None = None,
 ) -> None:
     """Orchestrate the full fetch run.
 
@@ -274,10 +275,19 @@ def run_fetch(
     FR-04: Scroll to collect job cards.
     FR-11: Retry detail-page extraction.
     FR-13: Print summary on completion.
+
+    Args:
+        fetch_url: URL to fetch. If None, reads from config (sources.linkedin.fetch_url for
+                   backward compatibility, or fetch.urls[0] as fallback).
     """
-    fetch_url: str = config["sources"]["linkedin"]["fetch_url"]
+    if fetch_url is None:
+        # Backward compat: old config format
+        fetch_url = config.get("sources", {}).get("linkedin", {}).get(
+            "fetch_url",
+            "https://www.linkedin.com/jobs/collections/recommended/",
+        )
     print(
-        f"Fetching LinkedIn recommended jobs (lookback={lookback}d, limit={limit})...",
+        f"Fetching LinkedIn jobs from {fetch_url} (lookback={lookback}d, limit={limit})...",
         flush=True,
     )
 
