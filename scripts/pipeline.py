@@ -232,22 +232,28 @@ def run_fetch(config: dict, dry_run: bool, log: logging.Logger,
             log.info("PIPELINE: [DRY RUN] Would fetch collection: %s (%s)", name, url)
         return
 
-    for entry in fetch_urls:
+    for i, entry in enumerate(fetch_urls, 1):
         name = entry.get("name", "?") if isinstance(entry, dict) else "?"
         url = entry.get("url", entry) if isinstance(entry, dict) else entry
-        log.info("PIPELINE: Fetching collection: %s (%s)", name, url)
-        result = subprocess.run(
-            ["uv", "run", "--directory", str(skill_dir), "python", "scripts/cli.py",
-             "fetch", "--limit", str(limit), "--lookback", str(lookback), "--url", url],
-            cwd=skill_dir,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            log.warning("PIPELINE: Fetch collection '%s' exited %d: %s",
-                        name, result.returncode, result.stderr[:300])
-        else:
-            log.info("PIPELINE: Collection '%s' fetch complete", name)
+        log.info("PIPELINE: Fetching collection %d/%d: %s (%s)", i, len(fetch_urls), name, url)
+        try:
+            result = subprocess.run(
+                ["uv", "run", "--directory", str(skill_dir), "python", "scripts/cli.py",
+                 "fetch", "--limit", str(limit), "--lookback", str(lookback), "--url", url],
+                cwd=skill_dir,
+                capture_output=True,
+                text=True,
+                timeout=300,  # 5 min max per collection
+            )
+            if result.returncode != 0:
+                log.warning("PIPELINE: Fetch collection '%s' exited %d: %s",
+                            name, result.returncode, result.stderr[:300])
+            else:
+                log.info("PIPELINE: Collection '%s' fetch complete", name)
+        except subprocess.TimeoutExpired:
+            log.warning("PIPELINE: Fetch collection '%s' timed out (300s), skipping", name)
+        except Exception as exc:
+            log.warning("PIPELINE: Fetch collection '%s' failed: %s", name, exc)
 
     after = count_new_jobs(db_path)
     newly = after - before
