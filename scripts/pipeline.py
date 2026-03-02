@@ -249,7 +249,13 @@ def run_fetch(config: dict, dry_run: bool, log: logging.Logger,
                 log.warning("PIPELINE: Fetch collection '%s' exited %d: %s",
                             name, result.returncode, result.stderr[:300])
             else:
-                log.info("PIPELINE: Collection '%s' fetch complete", name)
+                # Parse summary from CLI output (e.g. "✓ Run complete: 2 new, 0 updated, 1 skipped, 0 errors")
+                summary = ""
+                for line in result.stdout.splitlines():
+                    if "Run complete" in line:
+                        summary = line.strip()
+                        break
+                log.info("PIPELINE: Collection '%s' done — %s", name, summary or "(no summary)")
         except subprocess.TimeoutExpired:
             log.warning("PIPELINE: Fetch collection '%s' timed out (300s), skipping", name)
         except Exception as exc:
