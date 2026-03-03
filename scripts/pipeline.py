@@ -128,8 +128,7 @@ def run_agent(session_id: str, prompt: str, timeout: int, thinking: str,
         "--timeout", str(timeout),
         "--json",
     ]
-    if model:
-        cmd.extend(["--model", model])
+    # model is configured at agent/session level, not per CLI call
     log.info("PIPELINE: Invoking agent session=%s timeout=%ds", session_id, timeout)
     log.debug("PIPELINE: Command: %s", " ".join(cmd))
 
@@ -444,7 +443,6 @@ DIRECTION: <ai|ic|mgmt|venture>
          "--session-id", session_id,
          "--message", f"RESPOND DIRECTLY. Do NOT use any tools. Do NOT read any files. All input is below.\n\n{combined_prompt}",
          "--thinking", "off",
-         "--model", "sonnet",
          "--timeout", "120",
          "--json"],
         capture_output=True, text=True, timeout=150
@@ -665,7 +663,7 @@ def main() -> None:
         model = apply_cfg.get("model", None)
         session_id = f"jobhunt-apply-{jid}"
 
-        agent_result = run_agent(session_id, prompt, timeout, thinking, args.dry_run, log, model=model)
+        agent_result = run_agent(session_id, prompt, timeout, thinking, args.dry_run, log)
 
         if "error" in agent_result:
             log.error("PIPELINE: Job %d: Apply agent error — %s", jid, agent_result["error"])
