@@ -22,7 +22,9 @@ import yaml
 # ── Paths ─────────────────────────────────────────────────────────────────────
 SKILL_DIR = Path(__file__).parent.parent.resolve()
 DATA_DIR = Path.home() / ".openclaw" / "data" / "jobhunt"
-LOG_FILE = DATA_DIR / "logs" / "pipeline.log"
+def _daily_log_path() -> Path:
+    from datetime import date
+    return DATA_DIR / "logs" / f"pipeline-{date.today().isoformat()}.log"
 
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -67,7 +69,8 @@ def notify(message: str, log: logging.Logger, channel_id: str = _DEFAULT_DISCORD
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 def setup_logging(verbose: bool) -> logging.Logger:
-    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    log_file = _daily_log_path()
+    log_file.parent.mkdir(parents=True, exist_ok=True)
     level = logging.DEBUG if verbose else logging.INFO
     fmt = "[%(asctime)s] [%(levelname)s] %(message)s"
     datefmt = "%Y-%m-%dT%H:%M:%SZ"
@@ -76,7 +79,7 @@ def setup_logging(verbose: bool) -> logging.Logger:
     logger = logging.getLogger("pipeline")
     logger.setLevel(level)
 
-    file_handler = logging.FileHandler(LOG_FILE, mode="a", encoding="utf-8")
+    file_handler = logging.FileHandler(log_file, mode="a", encoding="utf-8")
     file_handler.setFormatter(logging.Formatter(fmt, datefmt=datefmt))
     logger.addHandler(file_handler)
 
