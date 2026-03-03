@@ -137,7 +137,7 @@ def run_agent(session_id: str, prompt: str, timeout: int, thinking: str,
         return {"dry_run": True}
 
     # If prompt is very long, write to temp file and instruct agent to read it
-    if len(prompt) > 50000:
+    if len(prompt) > 10000:
         import tempfile
         prompt_file = Path(tempfile.mkdtemp()) / f"{session_id}-prompt.md"
         prompt_file.write_text(prompt)
