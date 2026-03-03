@@ -178,7 +178,7 @@ Notes: <any issues or observations>
 
 After completing (regardless of outcome):
 1. **Platform lessons**: If you encountered new patterns, tricks, or gotchas → append to the existing platform file in `$skill_dir/references/platforms/`. Only add NEW insights.
-   - **File naming**: Use the ATS/platform domain as filename with hyphens (e.g., `amazon-jobs.md`, `walmart-careers.md`). NEVER use dots in filenames. Check existing files first — do NOT create a duplicate.
+   - **File naming**: Use the ATS/platform domain as filename with hyphens (e.g., `amazon-jobs.md`, `walmart-careers.md`). NEVER use dots in filenames. Use the ATS product name, NOT company-specific subdomains (e.g., `successfactors-portal.md` not `career5.successfactors-portal.md`; `greenhouse.md` not `boards-greenhouse-io.md`). Check existing files first — do NOT create a duplicate.
 2. **Difficulties**: If blockers or unexpected failures → send a brief Discord report:
    ```
    openclaw message send --channel discord --target $discord_channel --message "Apply Agent Report (Job $job_id - $company): <description>"
