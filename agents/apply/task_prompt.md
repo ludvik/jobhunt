@@ -25,6 +25,10 @@ Key requirements:
 Critical rules:
 - NEVER run `openclaw gateway restart`
 - Save ALL new platform passwords to macOS Keychain: `security add-generic-password -a "<email>" -s "jobhunt:<domain>" -w "<password>" -U`
+- Resume file name MUST be `Haomin-Liu-Resume.pdf` — NEVER use job ID or generic names in the filename
+- Before upload, copy resume: `cp $data_dir/resumes/$job_id/resume.pdf /tmp/openclaw/uploads/Haomin-Liu-Resume.pdf`
+- If resume.pdf missing, use tailored.md as fallback
+- Arm upload BEFORE clicking: `browser(action="upload", profile="openclaw", target="host", paths=["/tmp/openclaw/uploads/Haomin-Liu-Resume.pdf"])`
 - Form experience entries MUST match `$data_dir/resumes/$job_id/tailored.md`
 - Log every action to: `$data_dir/logs/pipeline.log`
 

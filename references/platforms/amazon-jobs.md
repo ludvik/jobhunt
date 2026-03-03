@@ -38,3 +38,26 @@
 
 - New runtime finding: Amazon job-questions radios can fail if you set `input.checked=true` only in JS; dispatching click/change events or interacting by `name`/`value` is more reliable than ref-based selectors.
 - Ref tokens (`ref=e####`) and some generated input IDs for required Work Eligibility radios change across renders; avoid persisting refs across steps and always re-snapshot or query by semantic selectors before clicking.
+
+## Confirmed Working: JS-based Radio/Select Interaction (2026-03-02)
+- **Radio buttons**: `el.click(); el.dispatchEvent(new Event('change', {bubbles: true}))` reliably updates React state when done on `input[type=radio]` elements
+- **Select2 comboboxes**: The citizenship field is a Select2 widget. Find the backing `<select>` element and use native setter: `Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, value); sel.dispatchEvent(new Event('change', {bubbles: true}))`
+- **Query pattern**: Use `document.querySelectorAll('input[type=radio]')` and filter by `r.name === 'FIELD_NAME'` and `r.labels[0].textContent` — much more stable than ref IDs
+
+## Work Eligibility - China Citizenship Pattern
+- If applicant is Chinese citizen with US Green Card:
+  - Citizenship: "Mainland China" (value: `CHINA`) — NOT "China" (option label in dropdown is "Mainland China")
+  - Lived outside US 12+ months: Yes → auto-selects China in multi-select listbox
+  - PR in other country: Yes → "United States of America" + "Permanent resident"
+  - Sponsorship: No
+
+## Resume Replace Flow
+- From review page, clicking "Replace Resume" navigates to resume upload page (not inline modal)
+- Click "Browse device" link → triggers hidden `input[type=file]` → upload via selector `input[type=file]`
+- After upload, "Save & continue" returns to review page
+- File must be in `/tmp/openclaw/uploads/` for browser upload tool to access it
+
+## Login Flow
+- Subdomain: `passport.amazon.jobs` for login, then redirects to `account.amazon.jobs` for application
+- After login, MFA prompt appears: click "Skip for now" link
+- Credentials stored in Keychain: service = `jobhunt:amazon.jobs`

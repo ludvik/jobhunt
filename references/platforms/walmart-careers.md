@@ -105,3 +105,9 @@
 - For Senior/Staff tech roles, application may go directly to confirmation without an in-line assessment
 - Confirmation shows "Application Submitted!" with job title, location card, and "Roles picked for you"
 - Note: Assessment may still be sent separately via email
+
+## Application Recovery (2026-03-03 - Job 324)
+- A previous agent attempt timed out mid-application but had already submitted
+- On restart: check all browser tabs before retrying — look for a "JobSubmitted" title tab at `careers.walmart.com/us/en/jobs/submitted?applicationGroupId=...`
+- If found: snapshot to confirm "Application Submitted!" heading, then mark `applied` without re-applying
+- The appcast.io tracking link opens in a new tab immediately — always check tabs after clicking "Apply on company website"
