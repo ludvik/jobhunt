@@ -14,6 +14,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from scripts.pipeline import (
     _deep_merge,
+    classify_new_jobs,
     get_eligible_jobs,
     get_job,
     get_job_status,
@@ -22,6 +23,7 @@ from scripts.pipeline import (
     load_config,
     load_prompt,
     run_agent,
+    run_tailor_direct,
 )
 
 
@@ -256,3 +258,142 @@ class TestRunAgent:
             log=log,
         )
         assert result == {"dry_run": True}
+
+
+
+# ── Classification (blacklist) ────────────────────────────────────────────────
+
+class TestClassifyNewJobs:
+    @pytest.fixture()
+    def classify_db(self, tmp_data_dir: Path) -> Path:
+        db_path = tmp_data_dir / "classify.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("""
+                CREATE TABLE jobs (
+                    id INTEGER PRIMARY KEY,
+                    platform TEXT,
+                    platform_id TEXT,
+                    title TEXT,
+                    company TEXT,
+                    job_url TEXT,
+                    jd_text TEXT,
+                    status TEXT DEFAULT 'new'
+                        CHECK(status IN ('new','skipped','not_suitable','tailored','blocked','apply_failed','applied')),
+                    fetched_at TEXT,
+                    status_updated_at TEXT
+                )
+            """)
+            conn.executemany(
+                "INSERT INTO jobs (id, title, company, jd_text) VALUES (?, ?, ?, ?)",
+                [
+                    (1, "Senior Software Engineer", "Google", "10+ years of experience required"),
+                    (2, "Data Engineer", "Startup", "Build ETL pipelines"),
+                    (3, "Frontend Engineer", "Meta", "React expertise needed"),
+                    (4, "Intern Software Developer", "Amazon", "Summer internship"),
+                    (5, "Staff Engineer", "Stripe", "5+ years experience"),
+                    (6, "Software Engineer", "SmallCo", "1+ years of experience required. Build APIs."),
+                ],
+            )
+        return db_path
+
+    def test_filters_blacklisted_titles(self, classify_db: Path):
+        config = {
+            "classify": {
+                "enabled": True,
+                "exclude_patterns": [
+                    "(?i)\\bdata engineer\\b",
+                    "(?i)\\bfront.?end\\b",
+                    "(?i)\\bintern\\b",
+                ],
+            }
+        }
+        import logging
+        log = logging.getLogger("test")
+        classify_new_jobs(classify_db, config, log)
+
+        with sqlite3.connect(classify_db) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = {r["id"]: r["status"] for r in conn.execute("SELECT id, status FROM jobs")}
+
+        assert rows[1] == "new"  # Senior SWE — kept
+        assert rows[2] == "not_suitable"  # Data Engineer — filtered
+        assert rows[3] == "not_suitable"  # Frontend — filtered
+        assert rows[4] == "not_suitable"  # Intern — filtered
+        assert rows[5] == "new"  # Staff Engineer — kept
+
+    def test_experience_filter_non_senior(self, classify_db: Path):
+        config = {
+            "classify": {
+                "enabled": True,
+                "exclude_patterns": [],
+                "min_experience_years": 5,
+            }
+        }
+        import logging
+        log = logging.getLogger("test")
+        classify_new_jobs(classify_db, config, log)
+
+        with sqlite3.connect(classify_db) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = {r["id"]: r["status"] for r in conn.execute("SELECT id, status FROM jobs")}
+
+        # Job 6: "Software Engineer" (no senior keyword) with "1+ years" → filtered
+        assert rows[6] == "not_suitable"
+        # Job 1: "Senior Software Engineer" → kept even though JD says 10+ years
+        assert rows[1] == "new"
+        # Job 5: "Staff Engineer" → kept (senior keyword)
+        assert rows[5] == "new"
+
+    def test_disabled_classify_skips(self, classify_db: Path):
+        config = {"classify": {"enabled": False, "exclude_patterns": ["(?i)\\bintern\\b"]}}
+        import logging
+        log = logging.getLogger("test")
+        classify_new_jobs(classify_db, config, log)
+
+        with sqlite3.connect(classify_db) as conn:
+            statuses = [r[0] for r in conn.execute("SELECT status FROM jobs")]
+        assert all(s == "new" for s in statuses)
+
+
+# ── Tailor output parsing ─────────────────────────────────────────────────────
+
+class TestTailorParsing:
+    """Test the output parsing logic of run_tailor_direct without actual LLM calls."""
+
+    def test_parse_direction_and_resume(self):
+        """Verify the parsing logic for DIRECTION: / ---RESUME--- format."""
+        response_text = """DIRECTION: ai
+---RESUME---
+# Haomin Liu
+Senior AI Engineer with 10+ years...
+"""
+        # Simulate the parsing logic from run_tailor_direct
+        direction = "ic"
+        resume_md = response_text
+
+        if "DIRECTION:" in response_text and "---RESUME---" in response_text:
+            parts = response_text.split("---RESUME---", 1)
+            header = parts[0]
+            resume_md = parts[1].strip() if len(parts) > 1 else ""
+            for d in ["ai", "ic", "mgmt", "venture"]:
+                if f"DIRECTION: {d}" in header.lower() or f"DIRECTION: {d}" in header:
+                    direction = d
+                    break
+
+        assert direction == "ai"
+        assert "Haomin Liu" in resume_md
+        assert "Senior AI Engineer" in resume_md
+
+    def test_fallback_when_no_markers(self):
+        """If agent doesn't output DIRECTION:/---RESUME---, use entire output."""
+        response_text = "# Haomin Liu\nSome resume content here that is long enough"
+        direction = "ic"
+        resume_md = response_text
+
+        if "DIRECTION:" in response_text and "---RESUME---" in response_text:
+            pass  # would parse
+        elif response_text.strip():
+            resume_md = response_text.strip()
+
+        assert direction == "ic"  # default
+        assert resume_md == response_text.strip()

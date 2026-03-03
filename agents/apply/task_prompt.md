@@ -177,7 +177,8 @@ Notes: <any issues or observations>
 ### 10. Reflect (platform lessons)
 
 After completing (regardless of outcome):
-1. **Platform lessons**: If you encountered new patterns, tricks, or gotchas → append to `$skill_dir/references/platforms/<platform>.md` (create if needed). Only add NEW insights.
+1. **Platform lessons**: If you encountered new patterns, tricks, or gotchas → append to the existing platform file in `$skill_dir/references/platforms/`. Only add NEW insights.
+   - **File naming**: Use the ATS/platform domain as filename with hyphens (e.g., `amazon-jobs.md`, `walmart-careers.md`). NEVER use dots in filenames. Check existing files first — do NOT create a duplicate.
 2. **Difficulties**: If blockers or unexpected failures → send a brief Discord report:
    ```
    openclaw message send --channel discord --target $discord_channel --message "Apply Agent Report (Job $job_id - $company): <description>"

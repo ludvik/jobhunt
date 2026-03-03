@@ -134,3 +134,16 @@ Plus: Future positions contact preference
 
 ### Resume Upload Location
 In Step 2 (My Experience), the resume upload is at the bottom below work history and education fields. The upload successfully accepted a PDF file.
+
+## Blue Origin Workday (blueorigin.wd5.myworkdayjobs.com) — 2026-03-02
+
+### Account Creation Flow
+- Apply button triggers a "Start Your Application" modal with 3 options: "Autofill with Resume", "Apply Manually", "Use My Last Application"
+- Choosing "Autofill with Resume" arms the file chooser — upload BEFORE clicking the button OR arm upload first then click
+- After upload, navigates to 8-step application: Create Account/Sign In → Autofill with Resume → My Information → My Experience → Application Questions → Voluntary Disclosures → Self Identify → Review
+- **IMPORTANT**: Workday account creation requires email verification before login works. After creating account, Workday redirects to Sign In page but login will fail until the email is verified. Check the registered email for a verification link.
+- Keychain service name: `jobhunt:blueorigin.wd5.myworkdayjobs.com`
+- If login fails after account creation: mark `blocked`, note "Needs email verification", send Discord report.
+
+### Export Control Note
+- Blue Origin requires U.S. citizen, national, permanent resident (Green Card), refugee, or asylum. Green Card holders qualify.

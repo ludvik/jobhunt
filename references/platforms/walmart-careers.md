@@ -111,3 +111,29 @@
 - On restart: check all browser tabs before retrying — look for a "JobSubmitted" title tab at `careers.walmart.com/us/en/jobs/submitted?applicationGroupId=...`
 - If found: snapshot to confirm "Application Submitted!" heading, then mark `applied` without re-applying
 - The appcast.io tracking link opens in a new tab immediately — always check tabs after clicking "Apply on company website"
+
+---
+## Walmart Careers ATS (careers.walmart.com) — observed 2026-03-02
+
+### Apply flow (14 steps)
+1. Job page → "Apply now"
+2. "Start your application" — 3 choices: Upload resume / Use my last application / Apply manually
+   - Arm upload BEFORE clicking "Upload resume" button; file chooser auto-resolves
+   - Resume is parsed automatically and pre-populates name, phone, email, work history
+3. "Tell us about yourself" — name/email/phone pre-filled; radio for language (English/Spanish) + worked at Walmart
+4. "What is your home address?" — Address line 1, City, State (combobox), ZIP
+5. "Employment history" — work entries auto-populated from resume; website URL fields may be pre-filled with INVALID placeholder text (e.g. "GitHub Profile") — must override with real https:// URLs; agreement checkbox required
+6-7. (skipped — may be education/other depending on resume)
+8. "Voluntary disclosure" — 6 radio pairs + age dropdown; use JS evaluate() to click radios (direct ref clicks fail)
+9. (may appear based on profile)
+10. "Military Service" — 2 radio groups; use JS evaluate()
+11. "Terms and Conditions" — checkbox + Agree button
+12-13. "Review your application" — summary; Continue → submits
+14. Confirmation: "Application Submitted!" heading + alert `JobSubmitted`
+
+### Key gotchas
+- **Radio buttons**: direct `kind: click` on radio refs FAILS — use `kind: evaluate` with `document.querySelectorAll('input[type=radio]')[i].click()`
+- **Website URL fields**: resume parser may inject non-URL placeholder text; always check and override
+- **Address field**: resume parser may inject "City, State" as address line 1 — clear and replace
+- **No login required**: application proceeds as guest; confirmation email sent to provided address
+- **Step numbering**: progress bar shows "X of 14"; steps can skip numbers based on profile data
