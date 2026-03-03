@@ -20,13 +20,23 @@ browser(action="close", profile="openclaw", target="host", targetId="<id>")
 ```
 Only proceed after ALL tabs are closed. This prevents ref numbering conflicts across tabs.
 
-## Setup (read ONCE at start, before doing anything else)
+## Reference Data (pre-loaded, do NOT read these files yourself)
 
-1. **structured.yaml**: `$data_dir/profile/structured.yaml` — contact info, work auth, preferences, diversity answers
-2. **Platform knowledge**: `$skill_dir/references/platforms/<platform>.md` (if it exists) — follow documented patterns without re-exploring
-3. **Tailored resume**: `$data_dir/resumes/$job_id/tailored.md` — source of truth for work experience entries
+### Contact & Profile (from structured.yaml)
+```yaml
+$structured_yaml_content
+```
 
-Do NOT re-read any of these files mid-application.
+### Platform Knowledge
+$platform_knowledge_content
+
+### Tailored Resume
+Resume file: `$resume_path`
+```
+$tailored_resume_content
+```
+
+All data above is pre-loaded. Do NOT read structured.yaml, platform files, or tailored.md yourself.
 
 ---
 

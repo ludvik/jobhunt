@@ -1,75 +1,72 @@
-# jobhunt/config.yaml — skill-dir defaults
-# User overrides: ~/.openclaw/data/jobhunt/config.yaml (same schema, partial allowed)
-
 pipeline:
   limit: 30
   tailor_timeout: 120
-  apply_timeout: 1200
-  thinking_level: "low"
-
+  apply_timeout: 600
+  thinking_level: low
 fetch:
   limit: 10
   lookback: 7
   urls:
-    - name: recommended
-      url: "https://www.linkedin.com/jobs/collections/recommended/"
-    - name: unicorn-companies
-      url: "https://www.linkedin.com/jobs/collections/unicorn-companies/"
-    - name: top-startups
-      url: "https://www.linkedin.com/jobs/collections/top-startups/"
-    - name: gen-ai
-      url: "https://www.linkedin.com/jobs/collections/gen-ai/"
-    - name: ai-and-ml
-      url: "https://www.linkedin.com/jobs/collections/ai-and-ml/"
-    - name: sustainability
-      url: "https://www.linkedin.com/jobs/collections/sustainability/"
-    - name: remote-jobs
-      url: "https://www.linkedin.com/jobs/collections/remote-jobs/"
-    - name: manufacturing
-      url: "https://www.linkedin.com/jobs/collections/manufacturing/"
-    - name: small-business
-      url: "https://www.linkedin.com/jobs/collections/small-business/"
-    - name: climate-and-cleantech
-      url: "https://www.linkedin.com/jobs/collections/climate-and-cleantech/"
-    - name: mobility-tech
-      url: "https://www.linkedin.com/jobs/collections/mobility-tech/"
-    - name: yc-funded
-      url: "https://www.linkedin.com/jobs/collections/yc-funded/"
-    - name: real-estate
-      url: "https://www.linkedin.com/jobs/collections/real-estate/"
-    - name: top-retail
-      url: "https://www.linkedin.com/jobs/collections/top-retail/"
-
+  - name: recommended
+    url: https://www.linkedin.com/jobs/collections/recommended/
+  - name: unicorn-companies
+    url: https://www.linkedin.com/jobs/collections/unicorn-companies/
+  - name: top-startups
+    url: https://www.linkedin.com/jobs/collections/top-startups/
+  - name: gen-ai
+    url: https://www.linkedin.com/jobs/collections/gen-ai/
+  - name: ai-and-ml
+    url: https://www.linkedin.com/jobs/collections/ai-and-ml/
+  - name: sustainability
+    url: https://www.linkedin.com/jobs/collections/sustainability/
+  - name: remote-jobs
+    url: https://www.linkedin.com/jobs/collections/remote-jobs/
+  - name: manufacturing
+    url: https://www.linkedin.com/jobs/collections/manufacturing/
+  - name: small-business
+    url: https://www.linkedin.com/jobs/collections/small-business/
+  - name: climate-and-cleantech
+    url: https://www.linkedin.com/jobs/collections/climate-and-cleantech/
+  - name: mobility-tech
+    url: https://www.linkedin.com/jobs/collections/mobility-tech/
+  - name: yc-funded
+    url: https://www.linkedin.com/jobs/collections/yc-funded/
+  - name: real-estate
+    url: https://www.linkedin.com/jobs/collections/real-estate/
+  - name: top-retail
+    url: https://www.linkedin.com/jobs/collections/top-retail/
 classify:
   enabled: true
   min_experience_years: 5
-  # Blacklist: jobs matching any pattern are marked not_suitable
   exclude_patterns:
-    - "(?i)\\bintern\\b"
-    - "(?i)\\binternship\\b"
-    - "(?i)\\bassociate\\b"
-    - "(?i)\\badministrator\\b"
-    - "(?i)\\branger\\b"
-    - "(?i)\\bfront.?end\\b"
-    - "(?i)\\bui engineer\\b"
-    - "(?i)\\bux\\b"
-    - "(?i)\\brecruiter\\b"
-    - "(?i)\\bsales\\b"
-    - "(?i)\\bmarketing\\b"
-    - "(?i)\\baccount.*(manager|executive)\\b"
-    - "(?i)\\bcustomer.*(success|support)\\b"
-    - "(?i)\\bhardware engineer\\b"
-    - "(?i)\\bmechanical engineer\\b"
-    - "(?i)\\belectrical engineer\\b"
-    - "(?i)\\bfirmware engineer\\b"
-    - "(?i)\\bembedded.*firmware\\b"
-    - "(?i)\\bpower conversion\\b"
-    - "(?i)\\bcad\\b"
-    - "(?i)\\bplm\\b"
-    - "(?i)\\bsolidworks\\b"
-    - "(?i)\bdata engineer\b"
-    - "(?i)\bdata engineering\b"
-
+  - (?i)\bintern\b
+  - (?i)\binternship\b
+  - (?i)\bassociate\b
+  - (?i)\badministrator\b
+  - (?i)\branger\b
+  - (?i)\bfront.?end\b
+  - (?i)\bui engineer\b
+  - (?i)\bux\b
+  - (?i)\brecruiter\b
+  - (?i)\bsales\b
+  - (?i)\bmarketing\b
+  - (?i)\baccount.*(manager|executive)\b
+  - (?i)\bcustomer.*(success|support)\b
+  - (?i)\bhardware engineer\b
+  - (?i)\bmechanical engineer\b
+  - (?i)\belectrical engineer\b
+  - (?i)\bfirmware engineer\b
+  - (?i)\bembedded.*firmware\b
+  - (?i)\bpower conversion\b
+  - (?i)\bcad\b
+  - (?i)\bplm\b
+  - (?i)\bsolidworks\b
+  - "(?i)\bdata engineer\b"
+  - "(?i)\bdata engineering\b"
+  blocked_platforms:
+  - lever.co
+  - ashbyhq.com
+  - icims.com
 logging:
-  level: "INFO"
+  level: INFO
   log_file: null

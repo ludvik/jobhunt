@@ -230,11 +230,8 @@ def classify_new_jobs(db_path: Path, config: dict, log: logging.Logger,
         return
 
     exclude_patterns = classify_cfg.get("exclude_patterns", [])
-    if not exclude_patterns:
-        log.info("PIPELINE: No exclude_patterns configured — skipping classification.")
-        return
-
     compiled = [_re.compile(p, _re.IGNORECASE) for p in exclude_patterns]
+    blocked_platforms = classify_cfg.get("blocked_platforms", [])
 
     if not db_path.exists():
         log.info("PIPELINE: DB not found — skipping classification.")
@@ -243,7 +240,7 @@ def classify_new_jobs(db_path: Path, config: dict, log: logging.Logger,
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT id, title, company FROM jobs WHERE status='new'"
+            "SELECT id, title, company, job_url FROM jobs WHERE status='new'"
         ).fetchall()
 
     kept = 0
@@ -256,10 +253,18 @@ def classify_new_jobs(db_path: Path, config: dict, log: logging.Logger,
         company = row["company"] or ""
 
         matched_pattern = None
-        for pat in compiled:
-            if pat.search(title):
-                matched_pattern = pat.pattern
+        # Check blocked platforms (CAPTCHA, etc.)
+        job_url = row["job_url"] or ""
+        for bp in blocked_platforms:
+            if bp in job_url:
+                matched_pattern = f"blocked_platform ({bp})"
                 break
+
+        if not matched_pattern:
+            for pat in compiled:
+                if pat.search(title):
+                    matched_pattern = pat.pattern
+                    break
 
         # Check JD for low experience requirement (X+ years where X < 5)
         if not matched_pattern:
@@ -272,12 +277,16 @@ def classify_new_jobs(db_path: Path, config: dict, log: logging.Logger,
                     jd = row2["jd_text"] or ""
             min_years = classify_cfg.get("min_experience_years", 0)
             if min_years and jd:
-                # Match patterns like "1+ years", "2+ years", "3 years of experience"
-                year_matches = _re2.findall(r'(\\d+)\+?\s*(?:years?|yrs?)\s*(?:of\s+)?(?:experience|professional)', jd, _re2.IGNORECASE)
-                if year_matches:
-                    max_required = max(int(y) for y in year_matches)
-                    if max_required < min_years:
-                        matched_pattern = f"experience_too_junior ({max_required}+ years < {min_years})"
+                # Only check for non-senior titles (senior roles often have low stated minimums)
+                senior_keywords = ['senior', 'sr.', 'staff', 'principal', 'lead', 'director',
+                                   'vp', 'head', 'chief', 'distinguished', 'founding', 'manager']
+                is_senior_title = any(kw in title.lower() for kw in senior_keywords)
+                if not is_senior_title:
+                    year_matches = _re2.findall(r'(\d+)\+?\s*(?:years?|yrs?)\s*(?:of\s+)?(?:experience|professional)', jd, _re2.IGNORECASE)
+                    if year_matches:
+                        max_required = max(int(y) for y in year_matches)
+                        if max_required < min_years:
+                            matched_pattern = f"experience_too_junior ({max_required}+ years < {min_years})"
 
         if matched_pattern:
             log.info("PIPELINE: Filtered job %d (%s @ %s) — matched: %s",
@@ -646,6 +655,32 @@ def main() -> None:
         pdf_path = DATA_DIR / "resumes" / str(jid) / "resume.pdf"
         final_resume = str(pdf_path) if pdf_path.exists() else str(resume_path)
 
+        # Pre-read files so agent doesn't have to
+        structured_yaml = ""
+        structured_path = DATA_DIR / "profile" / "structured.yaml"
+        if structured_path.exists():
+            structured_yaml = structured_path.read_text()
+
+        platform_knowledge = ""
+        job_url = job["url"] or ""
+        platform_dir = SKILL_DIR / "references" / "platforms"
+        if platform_dir.exists():
+            for pf in platform_dir.glob("*.md"):
+                if pf.name == "README.md":
+                    continue
+                # Match platform file by checking if domain appears in job URL
+                stem = pf.stem  # e.g. "greenhouse", "amazon-jobs"
+                # Simple heuristic: check stem keywords in URL
+                keywords = stem.replace("-", " ").replace(".", " ").split()
+                if any(kw in job_url.lower() for kw in keywords if len(kw) > 3):
+                    platform_knowledge = pf.read_text()
+                    log.info("PIPELINE: Job %d: Matched platform file %s", jid, pf.name)
+                    break
+
+        tailored_md = ""
+        if resume_path.exists():
+            tailored_md = resume_path.read_text()
+
         prompt_vars = {
             "job_id": jid,
             "job_title": job["title"],
@@ -655,9 +690,12 @@ def main() -> None:
             "data_dir": str(DATA_DIR),
             "resume_path": final_resume,
             "discord_channel": pipeline_cfg.get("discord_channel", _DEFAULT_DISCORD_CHANNEL),
+            "structured_yaml_content": structured_yaml,
+            "platform_knowledge_content": platform_knowledge,
+            "tailored_resume_content": tailored_md,
         }
         prompt = load_prompt("apply", prompt_vars)
-        timeout = apply_cfg.get("apply_timeout", 1200)
+        timeout = apply_cfg.get("apply_timeout", 600)
         thinking = apply_cfg.get("thinking_level", "low")
         model = apply_cfg.get("model", None)
         session_id = f"jobhunt-apply-{jid}"
@@ -724,7 +762,75 @@ def main() -> None:
         log,
         channel_id,
     )
+
+    # Step 6: Post-run analysis — update TODO.md with failure patterns
+    try:
+        _analyze_run(db_path, results, log)
+    except Exception as e:
+        log.warning("PIPELINE: Post-run analysis failed: %s", e)
+
     sys.exit(0)
+
+
+def _analyze_run(db_path: Path, results: dict, log: logging.Logger) -> None:
+    """Analyze this run's failures and append to TODO.md."""
+    from datetime import datetime, timezone
+    import json as _json
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    # Get this run's failed/blocked jobs
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        failures = conn.execute(
+            """SELECT id, title, company, job_url, status
+               FROM jobs WHERE status IN ('apply_failed','blocked')
+               AND date(status_updated_at) = date('now')"""
+        ).fetchall()
+
+    if not failures:
+        log.info("PIPELINE: No failures to analyze.")
+        return
+
+    # Categorize by URL domain
+    from urllib.parse import urlparse
+    platform_stats: dict[str, dict] = {}
+    for f in failures:
+        url = f["job_url"] or ""
+        domain = urlparse(url).netloc if url.startswith("http") else "unknown"
+        # Simplify domain
+        for key in ["greenhouse", "lever", "workday", "icims", "ashby", "amazon.jobs",
+                     "walmart", "uber", "ebay", "oracle", "microsoft"]:
+            if key in domain or key in url.lower():
+                domain = key
+                break
+        if domain not in platform_stats:
+            platform_stats[domain] = {"fail": 0, "block": 0, "jobs": []}
+        if f["status"] == "apply_failed":
+            platform_stats[domain]["fail"] += 1
+        else:
+            platform_stats[domain]["block"] += 1
+        platform_stats[domain]["jobs"].append(f"{f['id']} ({f['company']})")
+
+    # Append to TODO.md
+    todo_path = Path.home() / ".openclaw" / "workspace" / "tool-dev" / "jobhunt" / "TODO.md"
+    if todo_path.exists():
+        todo = todo_path.read_text()
+        # Append run entry to history table
+        entry = f"| {today} | {results['applied']} | {results['apply_failed']} | {results['blocked']} | {results['tailor_failed']} | auto |"
+        if entry not in todo:
+            todo = todo.replace(
+                "| 2026-03-03 | 1 | 14 | 6 | 0 | Multi-tab ref issues, prompt bloat |",
+                f"| 2026-03-03 | 1 | 14 | 6 | 0 | Multi-tab ref issues, prompt bloat |\n{entry}"
+            )
+            todo_path.write_text(todo)
+
+    # Log summary
+    log.info("PIPELINE: Failure analysis — %d failures across %d platforms:",
+             len(failures), len(platform_stats))
+    for plat, stats in sorted(platform_stats.items(), key=lambda x: -(x[1]["fail"]+x[1]["block"])):
+        log.info("  %s: %d fail, %d block — %s",
+                 plat, stats["fail"], stats["block"], ", ".join(stats["jobs"][:3]))
 
 
 if __name__ == "__main__":
