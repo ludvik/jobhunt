@@ -42,6 +42,7 @@ fetch:
 
 classify:
   enabled: true
+  min_experience_years: 5
   # Blacklist: jobs matching any pattern are marked not_suitable
   exclude_patterns:
     - "(?i)\\bintern\\b"

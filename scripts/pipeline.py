@@ -262,6 +262,24 @@ def classify_new_jobs(db_path: Path, config: dict, log: logging.Logger,
                 matched_pattern = pat.pattern
                 break
 
+        # Check JD for low experience requirement (X+ years where X < 5)
+        if not matched_pattern:
+            import re as _re2
+            jd = ""
+            with sqlite3.connect(db_path) as conn2:
+                conn2.row_factory = sqlite3.Row
+                row2 = conn2.execute("SELECT jd_text FROM jobs WHERE id=?", (job_id,)).fetchone()
+                if row2:
+                    jd = row2["jd_text"] or ""
+            min_years = classify_cfg.get("min_experience_years", 0)
+            if min_years and jd:
+                # Match patterns like "1+ years", "2+ years", "3 years of experience"
+                year_matches = _re2.findall(r'(\\d+)\+?\s*(?:years?|yrs?)\s*(?:of\s+)?(?:experience|professional)', jd, _re2.IGNORECASE)
+                if year_matches:
+                    max_required = max(int(y) for y in year_matches)
+                    if max_required < min_years:
+                        matched_pattern = f"experience_too_junior ({max_required}+ years < {min_years})"
+
         if matched_pattern:
             log.info("PIPELINE: Filtered job %d (%s @ %s) — matched: %s",
                      job_id, title, company, matched_pattern)
