@@ -631,14 +631,7 @@ def main() -> None:
                     results["tailor_failed"] += 1
                     continue
 
-            if new_status != "tailored":
-                log.error("PIPELINE: Job %d: Status still '%s' after tailor agent. Skipping apply.",
-                          jid, new_status)
-                results["tailor_failed"] += 1
-                continue
-
             log.info("PIPELINE: Job %d: Tailor complete. Status = tailored", jid)
-            notify(f"Tailored: Job {jid} ({job['company']} - {job['title']})", log, channel_id)
         else:
             log.info("PIPELINE: === Apply job %d (%s @ %s) [%d/%d] (already tailored) ===",
                      jid, job["title"], job["company"], i + 1, total)
