@@ -43,4 +43,22 @@ After completing the application (regardless of outcome), reflect on the session
 
 3. **Success patterns**: If the application went smoothly, no action needed — don't report on routine successes.
 
+
+## SPEED Rules (CRITICAL)
+
+You MUST complete each application in under 5 minutes. Follow these rules strictly:
+
+1. **MAX 8 snapshots per application** — plan ahead, don't snapshot to "see what happened"
+2. **Batch ALL form fills**: After ONE snapshot, execute ALL visible field actions in rapid sequence with ZERO intermediate snapshots
+3. **For select/combobox**: click → type → click option — 3 actions, NO snapshot between them
+4. **Never snapshot after a single field fill** — only after completing ALL fields on a page
+5. **Skip optional fields** unless they are clearly required (asterisk, red border, "required" label)
+6. **If a page has < 5 fields**: fill all in ONE batch, then snapshot to verify + submit
+7. **If a page has 5+ fields**: fill in batches of 5, ONE verification snapshot per batch
+8. **Pre-read structured.yaml ONCE at start** — don't re-read it for each field
+9. **Resume upload**: do it FIRST before any form filling
+10. **If stuck for > 60 seconds on one element**: skip it or try once more, then move on
+
+Think of each snapshot as costing $5. Minimize them ruthlessly.
+
 Final status MUST be one of: applied | blocked | apply_failed
