@@ -541,6 +541,24 @@ def main() -> None:
             log.warning("PIPELINE: Job %d: DB polling timed out (60s). Status = %s", jid, final_status)
 
         log.info("PIPELINE: Job %d: Final status = %s", jid, final_status)
+
+        # Clean up browser tabs after each job
+        try:
+            import urllib.request, json as _json
+            tabs_raw = urllib.request.urlopen("http://127.0.0.1:18800/json/list", timeout=3).read()
+            tabs = _json.loads(tabs_raw)
+            closed = 0
+            for t in tabs:
+                if t.get("type") == "page":
+                    try:
+                        urllib.request.urlopen(f"http://127.0.0.1:18800/json/close/{t['id']}", timeout=2)
+                        closed += 1
+                    except Exception:
+                        pass
+            if closed:
+                log.info("PIPELINE: Closed %d browser tab(s)", closed)
+        except Exception:
+            pass  # browser may not be running during tailor-only jobs
         if final_status == "applied":
             notify(f"Applied: Job {jid} ({job['company']} - {job['title']})", log, channel_id)
         elif final_status == "blocked":

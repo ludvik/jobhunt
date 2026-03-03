@@ -61,3 +61,23 @@
 - Assessments may be required after submission for some roles
 - Bellevue WA address shown on confirmation page for tech roles
 
+
+## Radio Button Clicking
+- Direct aria ref clicks (`act` with ref=eXX) consistently fail with "not found or not visible"
+- **Workaround**: Use `evaluate` with `getElementById(hashedId).click()`
+- Get hashed IDs via: `document.querySelectorAll('input[type="radio"]').map(r => ({id: r.id, label: r.labels[0].textContent}))`
+- Then click by: `document.getElementById('<hashedId>').click()`
+
+## OTP Digit Entry
+- OTP form uses 6 individual `<input>` boxes, one per digit
+- `type` action only fills the first box then stops (doesn't auto-advance)
+- Must type each digit into the correct box via separate type calls (ref=e9 for digit 1, e10 for digit 2, etc.)
+- Auto-submits when 6th digit is entered
+
+## Resume Upload (Session 2026-03-02)
+- Upload did work: `browser upload` + clicking "Upload resume" button navigated forward
+- Resume was parsed correctly, extracting 6 employment entries
+- Address parsed incorrectly ("Seattle, WA" instead of "Redmond, WA") - always verify/correct on address step
+
+## Additional Notes (2026-03-02)
+- Job ID in URL: R-XXXXXXX format (e.g., R-2121005 for this role)
