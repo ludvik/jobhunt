@@ -81,3 +81,27 @@
 
 ## Additional Notes (2026-03-02)
 - Job ID in URL: R-XXXXXXX format (e.g., R-2121005 for this role)
+
+## React Dropdown Interaction (2026-03-02 - confirmed working)
+- Walmart uses React-controlled `<select>` elements in dialogs (education/experience dialogs)
+- `act` with `kind: "select"` using old-format refs fails with "Element not found or not visible"
+- Native `HTMLSelectElement.prototype.value` setter with `dispatchEvent('change')` does NOT update React state
+- **WORKING SOLUTION**: Use `element.selectedIndex = N; element.dispatchEvent(new Event('change', {bubbles: true}))`
+- This triggers React's synthetic event listener and updates state correctly
+- Option indices must be determined first: use `evaluate` with `Array.from(el.options).map(o=>o.text)` to get mapping
+
+## Education Section Notes (2026-03-02)
+- Education section is initially empty (even with resume upload)
+- Must manually add each degree via "Add education" button → dialog
+- Dialog fields: School (text input), Degree (select index), Field of study (select index), GPA (text input, optional), Start date, End date
+- Date inputs use `mm/dd/yyyy` format - filling via native input setter works for React hydration
+- Clicking "Continue" in dialog via `evaluate`: `dialog.querySelectorAll('button')[4].click()` (5th button: Close, calendar×2, Remove, Continue)
+
+## Website URLs (2026-03-02)
+- Walmart parses website URLs from resume, but may paste only the text/title, not the actual URL
+- Always verify website URL fields on employment history page - fix any non-URL values before continuing
+
+## Application Completion (No Assessment, 2026-03-02)
+- For Senior/Staff tech roles, application may go directly to confirmation without an in-line assessment
+- Confirmation shows "Application Submitted!" with job title, location card, and "Roles picked for you"
+- Note: Assessment may still be sent separately via email

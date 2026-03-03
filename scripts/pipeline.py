@@ -115,7 +115,7 @@ def load_agent_config(role: str, global_config: dict,
 
 # ── Agent invocation ──────────────────────────────────────────────────────────
 def run_agent(session_id: str, prompt: str, timeout: int, thinking: str,
-              dry_run: bool, log: logging.Logger) -> dict:
+              dry_run: bool, log: logging.Logger, model: str | None = None) -> dict:
     """Invoke openclaw agent, return parsed JSON result."""
     cmd = [
         "openclaw", "agent",
@@ -125,6 +125,8 @@ def run_agent(session_id: str, prompt: str, timeout: int, thinking: str,
         "--timeout", str(timeout),
         "--json",
     ]
+    if model:
+        cmd.extend(["--model", model])
     log.info("PIPELINE: Invoking agent session=%s timeout=%ds", session_id, timeout)
     log.debug("PIPELINE: Command: %s", " ".join(cmd))
 
@@ -519,9 +521,10 @@ def main() -> None:
         prompt = load_prompt("apply", prompt_vars)
         timeout = apply_cfg.get("apply_timeout", 1200)
         thinking = apply_cfg.get("thinking_level", "low")
+        model = apply_cfg.get("model", None)
         session_id = f"jobhunt-apply-{jid}"
 
-        agent_result = run_agent(session_id, prompt, timeout, thinking, args.dry_run, log)
+        agent_result = run_agent(session_id, prompt, timeout, thinking, args.dry_run, log, model=model)
 
         if "error" in agent_result:
             log.error("PIPELINE: Job %d: Apply agent error — %s", jid, agent_result["error"])

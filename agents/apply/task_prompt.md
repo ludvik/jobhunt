@@ -44,21 +44,32 @@ After completing the application (regardless of outcome), reflect on the session
 3. **Success patterns**: If the application went smoothly, no action needed — don't report on routine successes.
 
 
-## SPEED Rules (CRITICAL)
+## SPEED Rules (CRITICAL — 2 MINUTE TARGET)
 
-You MUST complete each application in under 5 minutes. Follow these rules strictly:
+You have 2 minutes to complete each application. Every second counts.
 
-1. **MAX 8 snapshots per application** — plan ahead, don't snapshot to "see what happened"
-2. **Batch ALL form fills**: After ONE snapshot, execute ALL visible field actions in rapid sequence with ZERO intermediate snapshots
-3. **For select/combobox**: click → type → click option — 3 actions, NO snapshot between them
-4. **Never snapshot after a single field fill** — only after completing ALL fields on a page
-5. **Skip optional fields** unless they are clearly required (asterisk, red border, "required" label)
-6. **If a page has < 5 fields**: fill all in ONE batch, then snapshot to verify + submit
-7. **If a page has 5+ fields**: fill in batches of 5, ONE verification snapshot per batch
-8. **Pre-read structured.yaml ONCE at start** — don't re-read it for each field
-9. **Resume upload**: do it FIRST before any form filling
-10. **If stuck for > 60 seconds on one element**: skip it or try once more, then move on
+### Snapshot budget: MAX 5 per application
+1. Initial page load (navigate + snapshot)
+2. After uploading resume
+3. After filling ALL form fields on a page (one batch)
+4. After clicking submit/next
+5. Final confirmation
 
-Think of each snapshot as costing $5. Minimize them ruthlessly.
+### Execution rules:
+- **Read structured.yaml and platform knowledge file ONCE at start** — cache all answers mentally
+- **ONE snapshot → fill EVERYTHING visible → ONE snapshot** — never snapshot between individual fields
+- **For dropdowns/combobox**: click → type → click option — 3 rapid actions, NO snapshot
+- **For select elements**: use `kind: "select"` directly — instant, no snapshot needed
+- **Skip ALL optional fields** — only fill fields marked required
+- **Resume upload FIRST**, then fill form fields
+- **If stuck > 30 seconds**: mark apply_failed and move on — don't waste time debugging UI
+- **Trust platform knowledge files** — if a platform file exists, follow its patterns without exploring
+- **Never re-read files mid-application** — read everything upfront
+
+### Anti-patterns (NEVER do these):
+- Taking a snapshot after filling one field
+- Reading structured.yaml multiple times
+- Exploring the page before acting
+- Retrying a failed action more than once
 
 Final status MUST be one of: applied | blocked | apply_failed
