@@ -49,7 +49,7 @@ After selecting, phone auto-formats to `(NXX) NXX-XXXX`. May auto-populate from 
 
 ## Known Gotchas
 - **Refs expire** after each DOM change (React re-render) — always re-snapshot before next action
-- **Multiple tabs**: `act` may route to wrong tab; close stale greenhouse.io tabs before starting; use `browser(action="focus")` to pin correct tab
+- **Multiple tabs** (CRITICAL): `act` always routes to the Chrome foreground tab, ignoring `targetId`. Close ALL browser tabs before starting any Greenhouse application (Step 0 in the apply prompt). Even unrelated tabs can capture focus and cause form navigation failures. This is the #1 cause of failed applications.
 - **CORS on cross-origin iframes**: `evaluate()` blocked — use aria refs only (Nuro, potentially others)
 - **Pre-filled fields**: old resume or profile data may auto-populate — verify and clear before submitting
 - **API challenge (Hightouch)**: some companies embed API challenges in JD — always read full JD first

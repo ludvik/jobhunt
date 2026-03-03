@@ -150,23 +150,34 @@ def run_agent(session_id: str, prompt: str, timeout: int, thinking: str,
         log.info("PIPELINE: Prompt too long (%d chars), wrote to %s", len(prompt), prompt_file)
 
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout + 30,
-        )
-        if result.returncode != 0:
-            log.error("PIPELINE: Agent %s exited %d: %s",
-                      session_id, result.returncode, result.stderr[:500])
-            return {"error": result.stderr, "returncode": result.returncode}
-        return json.loads(result.stdout) if result.stdout.strip() else {}
-    except subprocess.TimeoutExpired:
-        log.error("PIPELINE: Agent %s timed out after %ds", session_id, timeout)
-        return {"error": "subprocess_timeout"}
-    except json.JSONDecodeError as exc:
-        log.error("PIPELINE: Agent %s returned invalid JSON: %s", session_id, exc)
-        return {"error": "invalid_json"}
+        # Use Popen to avoid pipe buffer deadlock on large agent output
+        import tempfile as _tf
+        stdout_file = Path(_tf.mkdtemp()) / f"{session_id}-stdout.json"
+        stderr_file = Path(_tf.mkdtemp()) / f"{session_id}-stderr.log"
+        with open(stdout_file, "w") as fout, open(stderr_file, "w") as ferr:
+            proc = subprocess.Popen(cmd, stdout=fout, stderr=ferr, text=True)
+            try:
+                proc.wait(timeout=timeout + 30)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+                log.error("PIPELINE: Agent %s timed out after %ds", session_id, timeout)
+                return {"error": "subprocess_timeout"}
+
+        if proc.returncode != 0:
+            err_text = stderr_file.read_text()[:500] if stderr_file.exists() else ""
+            log.error("PIPELINE: Agent %s exited %d: %s", session_id, proc.returncode, err_text)
+            return {"error": err_text, "returncode": proc.returncode}
+
+        stdout_text = stdout_file.read_text().strip() if stdout_file.exists() else ""
+        try:
+            return json.loads(stdout_text) if stdout_text else {}
+        except json.JSONDecodeError as exc:
+            log.error("PIPELINE: Agent %s returned invalid JSON: %s", session_id, exc)
+            return {"error": "invalid_json"}
+    except Exception as exc:
+        log.error("PIPELINE: Agent %s unexpected error: %s", session_id, exc)
+        return {"error": str(exc)}
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
