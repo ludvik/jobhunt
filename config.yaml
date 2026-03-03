@@ -3,7 +3,7 @@
 
 pipeline:
   limit: 30
-  tailor_timeout: 600
+  tailor_timeout: 120
   apply_timeout: 1200
   thinking_level: "low"
 

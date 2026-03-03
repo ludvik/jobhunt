@@ -1,63 +1,42 @@
-# Amazon.jobs Platform Notes
+# Amazon Jobs Platform Notes
 
-## Flow
-1. LinkedIn "Apply on company website" → redirects to amazon.jobs job page
-2. Click "Apply now" on amazon.jobs → opens apply portal at `/en-US/applicant/jobs/<jobid>/apply`
-3. SMS verification step (can skip)
-4. Job-specific Yes/No questions
-5. Work Eligibility (radio buttons + comboboxes)
-6. Review page
-7. Submit
+## Application Flow (amazon.jobs)
 
-## Authentication
-- Amazon.jobs uses a persistent applicant account
-- Profile data (name, email, address, phone) is pre-populated from previous applications
-- Resume can be re-used from previous submissions
+- LinkedIn jobs at Amazon show "Apply on company website" — links to amazon.jobs, NOT LinkedIn Easy Apply
+- amazon.jobs maintains a candidate account; contact info, education, resume are pre-populated from prior applications
+- Application steps: SMS verification (skip) → Job-specific questions → Work Eligibility → Review → Submit
 
-## Custom Combobox UI (Yes/No Questions)
-- The comboboxes are custom React components, NOT native `<select>` elements
-- **Quirky behavior**: Clicking the inner textbox of a combobox sometimes re-opens Q1 instead of the target combobox
-- **Correct approach**: Click the combobox element itself (e.g., `combobox "Do you have 5+ years..."`) not the inner textbox
-- After clicking the combobox element, a dropdown appears with Yes/No options — click the desired option
-- Auto-save works ("Progress auto-saved" appears after each selection)
+## Job-Specific Questions
 
-## Work Eligibility Page
-- Radio groups for: prior Amazon application, prior employment, non-compete, work authorization, immigration sponsorship, outside-US residency, government employment, sanctioned countries
-- Comboboxes for citizenship country and PR country
-- Required fields that are often not pre-filled: `REQUIRE_SPONSORSHIP` and `GEF_EXT_USA_GOVERNMENT_EMPLOYE`
-- Can use JavaScript `document.querySelectorAll('input[type=radio]')` to inspect/click radio states
+- Questions are Yes/No comboboxes using **Select2** library (custom SPAN-based dropdowns)
+- Normal click interaction on a textbox inside one Select2 may inadvertently re-expand a different (already-filled) Select2 above it
+- **Best approach:** Use JS to set the underlying select elements and dispatch change events:
+  const selects = document.querySelectorAll('select');
+  selects[N].value = '1'; // '1'=Yes, '2'=No
+  selects[N].dispatchEvent(new Event('change', {bubbles:true}));
+- Selects appear in DOM order matching the question order (0-indexed)
+
+## Work Eligibility
+
+- Has radio buttons for: previously applied, previously employed, non-compete, eligible to start, immigration sponsorship, lived outside US, government employee, sanctioned countries, citizenship, permanent resident status
+- Pre-populated values from prior applications carry over (verify before continuing)
+- Immigration sponsorship question is always blank (required); must set explicitly each time
+- Use JS: document.querySelectorAll('input[type=radio]')[N].click() to set radio buttons by index
+
+## Submit Button
+
+- The "Submit application" button on the review page may not respond to normal browser click action via aria ref
+- Use JS: Array.from(document.querySelectorAll('button')).filter(b => b.textContent.includes('Submit'))[0].click()
+- After click, URL changes to /applicant/jobs/{jobId}/summary?result=success then redirects to homepage = confirmed success
 
 ## Resume
-- Previously uploaded resumes are reused by default
-- "Replace Resume" button available on review page
-- Upload timestamp shown ("Uploaded: Yesterday at 11:01PM")
 
-## Confirmation
-- Success page: "Thank you for applying! Your application for [Job Title] (Job ID: XXXXXXX) has been submitted."
-- URL pattern: `/en-US/applicant/jobs/<jobid>/summary?result=success`
+- Resume upload persists across applications — same file reused if previously uploaded
+- Previous session may have already uploaded; check "Resume" section on review page
 
-- New runtime finding: Amazon job-questions radios can fail if you set `input.checked=true` only in JS; dispatching click/change events or interacting by `name`/`value` is more reliable than ref-based selectors.
-- Ref tokens (`ref=e####`) and some generated input IDs for required Work Eligibility radios change across renders; avoid persisting refs across steps and always re-snapshot or query by semantic selectors before clicking.
+## 2026-03-02 (Job 322 — Amazon Data Engineer)
 
-## Confirmed Working: JS-based Radio/Select Interaction (2026-03-02)
-- **Radio buttons**: `el.click(); el.dispatchEvent(new Event('change', {bubbles: true}))` reliably updates React state when done on `input[type=radio]` elements
-- **Select2 comboboxes**: The citizenship field is a Select2 widget. Find the backing `<select>` element and use native setter: `Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, value); sel.dispatchEvent(new Event('change', {bubbles: true}))`
-- **Query pattern**: Use `document.querySelectorAll('input[type=radio]')` and filter by `r.name === 'FIELD_NAME'` and `r.labels[0].textContent` — much more stable than ref IDs
-
-## Work Eligibility - China Citizenship Pattern
-- If applicant is Chinese citizen with US Green Card:
-  - Citizenship: "Mainland China" (value: `CHINA`) — NOT "China" (option label in dropdown is "Mainland China")
-  - Lived outside US 12+ months: Yes → auto-selects China in multi-select listbox
-  - PR in other country: Yes → "United States of America" + "Permanent resident"
-  - Sponsorship: No
-
-## Resume Replace Flow
-- From review page, clicking "Replace Resume" navigates to resume upload page (not inline modal)
-- Click "Browse device" link → triggers hidden `input[type=file]` → upload via selector `input[type=file]`
-- After upload, "Save & continue" returns to review page
-- File must be in `/tmp/openclaw/uploads/` for browser upload tool to access it
-
-## Login Flow
-- Subdomain: `passport.amazon.jobs` for login, then redirects to `account.amazon.jobs` for application
-- After login, MFA prompt appears: click "Skip for now" link
-- Credentials stored in Keychain: service = `jobhunt:amazon.jobs`
+- Successfully applied via amazon.jobs external link from LinkedIn
+- Select2 JS workaround was key for filling Q5/Q6 (clicking textboxes caused Q1 to re-expand)
+- Submit button required JS evaluate approach
+- Total time: multiple model sessions (prior attempts timed out on Select2 interaction)
