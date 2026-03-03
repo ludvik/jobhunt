@@ -136,6 +136,19 @@ def run_agent(session_id: str, prompt: str, timeout: int, thinking: str,
         log.info("PIPELINE: [DRY RUN] Would run: %s", " ".join(cmd))
         return {"dry_run": True}
 
+    # If prompt is very long, write to temp file and instruct agent to read it
+    if len(prompt) > 50000:
+        import tempfile
+        prompt_file = Path(tempfile.mkdtemp()) / f"{session_id}-prompt.md"
+        prompt_file.write_text(prompt)
+        # Replace the --message with a short instruction to read the file
+        cmd = [c for c in cmd]
+        for i, c in enumerate(cmd):
+            if c == "--message" and i + 1 < len(cmd):
+                cmd[i + 1] = f"Read and follow the instructions in {prompt_file} exactly. Do NOT summarize or skip any section."
+                break
+        log.info("PIPELINE: Prompt too long (%d chars), wrote to %s", len(prompt), prompt_file)
+
     try:
         result = subprocess.run(
             cmd,
