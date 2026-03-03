@@ -1,13 +1,20 @@
-# GE HealthCare Careers Platform Notes
+# GE HealthCare Careers (careers.gehealthcare.com)
 
-## Session Notes (2026-03-01, Job 101 - Sr Staff Software Engineer)
+## Overview
+Multi-step form accessed via LinkedIn redirect to `careers.gehealthcare.com/global/en/apply?...&step=...`.
 
-- The page flow is accessed via LinkedIn redirect to `careers.gehealthcare.com/global/en/apply?...&step=...`.
-- In multiple steps, `Next` buttons are not reliably clickable through snapshot refs (multiple anonymous buttons). DOM-driven `requestSubmit()` on `<form>` or direct button query by text was more reliable.
-- Step 4 voluntary disclosures and Step 5 self-identification allowed submission only after all visible required selects/inputs were populated.
-- **Important UI gotcha:** On Review step (`step=6`), the `Submit` button may appear enabled in UI but is effectively disabled; proceeding via the review `Next` action moved to `applythankyou` confirmation URL.
-- There can be an active cookie notice dialog (`_evidon-*` IDs). It should be safe to ignore if not blocking targeted form elements, but it can steal ref-based click actions.
+## Form Navigation
+- `Next` buttons are not reliably clickable via snapshot refs (multiple anonymous buttons)
+- Use DOM-driven `requestSubmit()` on `<form>` or direct button query by text: `document.querySelector('button[type=submit]').click()`
+- Review step (step=6): Submit button may appear enabled but is effectively disabled — clicking Next on review navigates to `applythankyou` confirmation URL
 
-## Apply Patterns
-- Save resume to `/tmp/openclaw/uploads/<name>.pdf` and use the browser `upload` action after triggering the file chooser.
-- If a required field has many options (e.g., `ethnicity`, `genderus`), setting by `selectedIndex` worked when direct value assignment failed due exact-value mismatch.
+## Dropdowns with Many Options
+- For fields like `ethnicity` or `genderus`, setting by `selectedIndex` works when direct value assignment fails due to exact-value mismatch
+
+## Resume Upload
+- Save resume to `/tmp/openclaw/uploads/<name>.pdf`
+- Use browser `upload` action after triggering the file chooser
+
+## Known Issues
+- Cookie notice dialog (`_evidon-*` IDs) may appear; safe to ignore if not blocking form elements, but can intercept ref-based clicks
+- Steps 4-5 (voluntary disclosures, self-identification) require all visible required selects/inputs to be populated before submission

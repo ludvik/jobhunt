@@ -1,139 +1,69 @@
-# Walmart Careers Platform (careers.walmart.com)
+# Walmart Careers (careers.walmart.com)
 
 ## Overview
-- External career site for Walmart/Sam's Club jobs
-- Linked from LinkedIn as "Apply on company website" via appcast.io redirect
-- 14-step application flow with progress bar
-- Supports saving progress and resuming via "Candidate Home" account
+14-step application flow. Linked from LinkedIn via appcast.io redirect (opens new tab — check tabs after clicking Apply).
 
-## Authentication
-- Email-only authentication (no password required)
-- OTP sent to email on each session
-- Email input is on a "contact details" page before the apply form
+## Auth
+- Email OTP (no password). OTP sent on each session.
+- OTP form: 6 individual input boxes — must type each digit separately; auto-submits on 6th digit
+- OTP digit entry: `type` only fills first box — use separate type calls per digit (ref=e9 for digit 1, e10 for digit 2, etc.)
 
 ## Application Flow (14 steps)
-1. Contact details (email + T&C checkbox)
+1. Contact details (email + T&C)
 2. Email OTP verification
-3. "Start your application" page: Upload resume | Use my last application | Apply manually
-4. Tell us about yourself (personal info)
+3. **"Start your application"**: Upload resume | Use my last application | Apply manually
+4. Personal info
 5. Home address
 6. Employment history (with education, languages, website)
-7. Voluntary disclosure (work auth, sponsorship, etc.)
-8. EEO (ethnicity, gender - both optional/prefer not to say)
-9. [Skipped steps - likely background]
-10. Military service
+7. Voluntary disclosure (work auth, sponsorship)
+8. EEO (ethnicity, gender — optional)
+9–10. Military service
 11. Terms and conditions
-12. Review your application
-13. Submit → Confirmation page
+12–13. Review your application
+14. Submit → Confirmation
 
-## Key Tricks
+## "Use my last application" — USE THIS
+Pre-fills ALL personal data from previous session. Always choose if applicant has applied before.
 
-### "Use my last application" is GOLD
-- Pre-fills ALL personal data from previous application session
-- Saves HouseWhisper/Gaida work entries if previously entered
-- Always choose this if applicant has applied to any Walmart job before
+## Radio Buttons
+Direct aria ref clicks FAIL. Use evaluate:
+```js
+// Get IDs: document.querySelectorAll('input[type="radio"]').map(r => ({id: r.id, label: r.labels[0].textContent}))
+document.getElementById('<hashedId>').click()
+```
 
-### Date Entry in Work Experience Dialog
-- Date comboboxes accept `mm/yyyy` format (e.g., `09/2020`)
-- After typing, the calendar picker shows as "expanded"
-- Must click on the first day of the month in the calendar popup to confirm and clear `aria-invalid`
-- Start date calendar: just typing is enough (it validates)
-- End date: need to click calendar button + select a day
+## React Dropdown (select elements in dialogs)
+`kind: "select"` fails. Native value setter doesn't update React state.
+**Working solution**:
+```js
+element.selectedIndex = N;
+element.dispatchEvent(new Event('change', {bubbles: true}));
+```
+Determine option indices first: `Array.from(el.options).map(o=>o.text)`
 
-### Work Experience Dialog - Submit
-- The "Continue" button in the dialog must be triggered via JS: `document.querySelectorAll('[role=dialog] button').find(b => b.textContent === 'Continue').click()`
-- Regular ref-based click sometimes doesn't work; JS scrollIntoView + click is reliable
+## Work Experience Dialog — Submit Button
+Regular ref click unreliable. Use JS:
+```js
+document.querySelectorAll('[role=dialog] button').find(b => b.textContent === 'Continue').click()
+```
 
-### Resume PDF Upload - KNOWN ISSUE
-- Walmart uses a hidden `<input type=file>` inside a React component
-- Playwright's `setInputFiles` returns `{ok:true}` but React state doesn't update
-- The file count stays at 0 after upload attempt
-- Workaround: skip PDF upload; proceed with manual form entry
-- Application still submits successfully without PDF
+## Date Entry in Work Experience Dialog
+- Format: `mm/yyyy` (e.g., `09/2020`)
+- After typing, calendar picker opens — click the first day of the month to confirm
+
+## Education Section
+- Initially empty even with resume upload — must add manually via "Add education" dialog
+- Dialog: School (text), Degree (select index), Field of study (select index), GPA (optional), Start date, End date
+- Date inputs use `mm/dd/yyyy`; use native input setter for React hydration
+- Continue button: `dialog.querySelectorAll('button')[4].click()` (5th button)
+
+## Resume Upload
+- Upload does work: `browser upload` + click "Upload resume" button
+- Resume parses correctly; verify address (may extract "City, State" as address line 1 — fix it)
+- Website URL fields may be pre-filled with non-URL placeholder text — always verify and correct
+
+## Application Recovery
+If previous agent attempt timed out but already submitted: check all browser tabs for "JobSubmitted" title at `careers.walmart.com/us/en/jobs/submitted?applicationGroupId=...`. If found, snapshot to confirm "Application Submitted!" heading and mark `applied` without re-applying.
 
 ## Confirmation
-- Page title changes to show "Application Submitted!" with the job title and location
-- Roles picked for you / "What's next?" section appears
-- A "Thank you for Applying!" email is sent to the applicant's email
-
-## Notes
-- Progress can be saved (system says "you can return anytime by signing up or logging in")
-- Assessments may be required after submission for some roles
-- Bellevue WA address shown on confirmation page for tech roles
-
-
-## Radio Button Clicking
-- Direct aria ref clicks (`act` with ref=eXX) consistently fail with "not found or not visible"
-- **Workaround**: Use `evaluate` with `getElementById(hashedId).click()`
-- Get hashed IDs via: `document.querySelectorAll('input[type="radio"]').map(r => ({id: r.id, label: r.labels[0].textContent}))`
-- Then click by: `document.getElementById('<hashedId>').click()`
-
-## OTP Digit Entry
-- OTP form uses 6 individual `<input>` boxes, one per digit
-- `type` action only fills the first box then stops (doesn't auto-advance)
-- Must type each digit into the correct box via separate type calls (ref=e9 for digit 1, e10 for digit 2, etc.)
-- Auto-submits when 6th digit is entered
-
-## Resume Upload (Session 2026-03-02)
-- Upload did work: `browser upload` + clicking "Upload resume" button navigated forward
-- Resume was parsed correctly, extracting 6 employment entries
-- Address parsed incorrectly ("Seattle, WA" instead of "Redmond, WA") - always verify/correct on address step
-
-## Additional Notes (2026-03-02)
-- Job ID in URL: R-XXXXXXX format (e.g., R-2121005 for this role)
-
-## React Dropdown Interaction (2026-03-02 - confirmed working)
-- Walmart uses React-controlled `<select>` elements in dialogs (education/experience dialogs)
-- `act` with `kind: "select"` using old-format refs fails with "Element not found or not visible"
-- Native `HTMLSelectElement.prototype.value` setter with `dispatchEvent('change')` does NOT update React state
-- **WORKING SOLUTION**: Use `element.selectedIndex = N; element.dispatchEvent(new Event('change', {bubbles: true}))`
-- This triggers React's synthetic event listener and updates state correctly
-- Option indices must be determined first: use `evaluate` with `Array.from(el.options).map(o=>o.text)` to get mapping
-
-## Education Section Notes (2026-03-02)
-- Education section is initially empty (even with resume upload)
-- Must manually add each degree via "Add education" button → dialog
-- Dialog fields: School (text input), Degree (select index), Field of study (select index), GPA (text input, optional), Start date, End date
-- Date inputs use `mm/dd/yyyy` format - filling via native input setter works for React hydration
-- Clicking "Continue" in dialog via `evaluate`: `dialog.querySelectorAll('button')[4].click()` (5th button: Close, calendar×2, Remove, Continue)
-
-## Website URLs (2026-03-02)
-- Walmart parses website URLs from resume, but may paste only the text/title, not the actual URL
-- Always verify website URL fields on employment history page - fix any non-URL values before continuing
-
-## Application Completion (No Assessment, 2026-03-02)
-- For Senior/Staff tech roles, application may go directly to confirmation without an in-line assessment
-- Confirmation shows "Application Submitted!" with job title, location card, and "Roles picked for you"
-- Note: Assessment may still be sent separately via email
-
-## Application Recovery (2026-03-03 - Job 324)
-- A previous agent attempt timed out mid-application but had already submitted
-- On restart: check all browser tabs before retrying — look for a "JobSubmitted" title tab at `careers.walmart.com/us/en/jobs/submitted?applicationGroupId=...`
-- If found: snapshot to confirm "Application Submitted!" heading, then mark `applied` without re-applying
-- The appcast.io tracking link opens in a new tab immediately — always check tabs after clicking "Apply on company website"
-
----
-## Walmart Careers ATS (careers.walmart.com) — observed 2026-03-02
-
-### Apply flow (14 steps)
-1. Job page → "Apply now"
-2. "Start your application" — 3 choices: Upload resume / Use my last application / Apply manually
-   - Arm upload BEFORE clicking "Upload resume" button; file chooser auto-resolves
-   - Resume is parsed automatically and pre-populates name, phone, email, work history
-3. "Tell us about yourself" — name/email/phone pre-filled; radio for language (English/Spanish) + worked at Walmart
-4. "What is your home address?" — Address line 1, City, State (combobox), ZIP
-5. "Employment history" — work entries auto-populated from resume; website URL fields may be pre-filled with INVALID placeholder text (e.g. "GitHub Profile") — must override with real https:// URLs; agreement checkbox required
-6-7. (skipped — may be education/other depending on resume)
-8. "Voluntary disclosure" — 6 radio pairs + age dropdown; use JS evaluate() to click radios (direct ref clicks fail)
-9. (may appear based on profile)
-10. "Military Service" — 2 radio groups; use JS evaluate()
-11. "Terms and Conditions" — checkbox + Agree button
-12-13. "Review your application" — summary; Continue → submits
-14. Confirmation: "Application Submitted!" heading + alert `JobSubmitted`
-
-### Key gotchas
-- **Radio buttons**: direct `kind: click` on radio refs FAILS — use `kind: evaluate` with `document.querySelectorAll('input[type=radio]')[i].click()`
-- **Website URL fields**: resume parser may inject non-URL placeholder text; always check and override
-- **Address field**: resume parser may inject "City, State" as address line 1 — clear and replace
-- **No login required**: application proceeds as guest; confirmation email sent to provided address
-- **Step numbering**: progress bar shows "X of 14"; steps can skip numbers based on profile data
+Page title: "Application Submitted!" with job title and location. Alert role: `JobSubmitted`. A "Thank you for Applying!" email is sent.

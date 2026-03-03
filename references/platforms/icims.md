@@ -1,5 +1,13 @@
-# iCIMS Platform Notes
+# iCIMS Platform
 
-- **2026-03-01 (Job 116 - Arm, LinkedIn apply)**: LinkedIn "Apply on company website" for Arm resolves to `careers.arm.com/job/seattle/staff-software-engineer-ai-agents/33099/91812705936` and then to `experienced-arm.icims.com/jobs/.../job/login`.
-- **2026-03-01 (Job 116)**: The iCIMS pages surfaced aggressive anti-bot/consent layers (`hCaptcha`, GDPR-style popups and hidden `iframe`s), and the main form content never became directly reachable in automation snapshots (`frame` mode repeatedly timed out).
-- **2026-03-01 (Job 116)**: On this run, applying via openclaw browser required robust iframe handling plus CAPTCHA bypass support; no reliable retry path existed after the frame timeouts, so automation should either switch to a human-assisted or lower-level browser profile path.
+## Overview
+iCIMS is used by companies like Arm. LinkedIn redirects to `careers.<company>.com/job/...` then to `<company>.icims.com/jobs/.../job/login`.
+
+## Known Issues
+- **Heavy anti-bot protection**: hCaptcha, GDPR-style popups, and hidden iframes
+- Main form content rarely becomes reachable in automation snapshots
+- `frame` mode repeatedly times out
+- No reliable retry path after frame timeouts
+
+## Recommendation
+Mark `apply_failed` immediately if iCIMS form content is unreachable. Do not attempt repeated retries. Escalate for human-assisted completion or a lower-level browser profile approach.
