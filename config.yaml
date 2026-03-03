@@ -66,6 +66,8 @@ classify:
     - "(?i)\\bcad\\b"
     - "(?i)\\bplm\\b"
     - "(?i)\\bsolidworks\\b"
+    - "(?i)\bdata engineer\b"
+    - "(?i)\bdata engineering\b"
 
 logging:
   level: "INFO"

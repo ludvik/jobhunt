@@ -11,17 +11,16 @@ description: >
 
 ## What this tool does
 
-`jobhunt` is a macOS CLI tool that automates LinkedIn job discovery and application tracking for a single job seeker. It:
+`jobhunt` is a macOS CLI tool that automates LinkedIn job discovery and application tracking. It:
 
-1. Authenticates with LinkedIn via macOS Keychain auto-login (or a headed manual browser fallback).
+1. Authenticates with LinkedIn via macOS Keychain (or manual browser fallback).
 2. Scrapes LinkedIn's recommended jobs feed using Playwright (headless Chromium).
-3. Stores unique job postings in a local SQLite database.
-4. Tracks jobs through a status pipeline: `new → skipped/tailored → blocked/apply_failed/applied`.
-5. Provides `list`, `show`, `status` commands to manage tracked jobs.
+3. Stores job postings in a local SQLite database.
+4. Tracks jobs through: `new → skipped/tailored → blocked/apply_failed/applied`.
 
-**Resume tailoring is NOT built into the CLI.** It's handled by the agent layer (see Tailor Workflow below).
+**Resume tailoring and application submission are agent-driven** — the CLI provides data; agents provide intelligence.
 
-All data lives locally at `~/.openclaw/data/jobhunt/`.
+All data lives at `~/.openclaw/data/jobhunt/`.
 
 ---
 
@@ -37,8 +36,7 @@ bash install.sh
 ## Prerequisites
 
 - Python 3.11+ (managed by `uv`)
-- macOS Keychain credentials for LinkedIn (stored via `security` CLI)
-- macOS Keychain for credential storage (no external tools needed)
+- macOS Keychain credentials for LinkedIn
 - An active LinkedIn account
 - For PDF generation: `pandoc` and `xelatex` in PATH (optional)
 
@@ -47,20 +45,11 @@ bash install.sh
 ## Quick Start
 
 ```bash
-# 1. Authenticate (first-time setup)
-jobhunt auth
-
-# 2. Fetch recommended jobs
-jobhunt fetch --limit 30 --lookback 14
-
-# 3. List tracked jobs
-jobhunt list
-
-# 4. Show job detail + JD
-jobhunt show <job_id>
-
-# 5. Set status
-jobhunt status <job_id> --set tailored --note "Tailored for AI focus"
+jobhunt auth                                              # First-time LinkedIn login
+jobhunt fetch --limit 30 --lookback 14                   # Scrape recommended jobs
+jobhunt list                                              # List tracked jobs
+jobhunt show <job_id>                                     # Show job detail + JD
+jobhunt status <job_id> --set tailored --note "done"     # Update status
 ```
 
 ---
@@ -71,8 +60,6 @@ jobhunt status <job_id> --set tailored --note "Tailored for AI focus"
 Opens a headed browser for manual LinkedIn login. Saves session to `~/.openclaw/data/jobhunt/session/linkedin.json`.
 
 ### `jobhunt fetch [OPTIONS]`
-Scrape LinkedIn recommended jobs feed.
-
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--limit N` | 25 | Max jobs to collect |
@@ -81,8 +68,6 @@ Scrape LinkedIn recommended jobs feed.
 | `--verbose` | off | Show per-job progress |
 
 ### `jobhunt list [OPTIONS]`
-List tracked jobs.
-
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--status S` | all | Filter by status (comma-separated) |
@@ -95,13 +80,11 @@ Show full details + JD text for a specific job.
 ### `jobhunt status <job_id> --set <status> [--note TEXT]`
 Update job status. Valid statuses: `new`, `skipped`, `tailored`, `blocked`, `apply_failed`, `applied`.
 
-Status transitions are enforced:
+Status transitions enforced:
 - `new` → `skipped`, `tailored`
 - `tailored` → `blocked`, `apply_failed`, `applied`
 - `blocked` → `tailored`, `applied`
 - `apply_failed` → `applied`
-
-Notes are append-only (never overwritten).
 
 ---
 
@@ -111,7 +94,6 @@ Notes are append-only (never overwritten).
 |------|---------|
 | `~/.openclaw/data/jobhunt/jobhunt.db` | SQLite database |
 | `~/.openclaw/data/jobhunt/session/linkedin.json` | LinkedIn session (perm 0600) |
-| `~/.openclaw/data/jobhunt/config.json` | Config file |
 | `~/.openclaw/data/jobhunt/resumes/<job_id>/` | Per-job resume artifacts |
 | `~/.openclaw/data/jobhunt/profile/` | Applicant ground truth (structured.yaml + narrative md files) |
 | `~/.openclaw/data/jobhunt/apply-log/<job_id>.md` | Per-job apply log |
@@ -121,20 +103,14 @@ Notes are append-only (never overwritten).
 
 ## Tailor Workflow (Agent-Driven)
 
-Resume tailoring is done by the agent, NOT the CLI. The CLI provides data; the agent provides intelligence.
-
-### Step-by-step
-
-**Log ALL steps to `~/.openclaw/data/jobhunt/pipeline-run.log`** (append, timestamped). Every step below must have a log entry so `tail -f` shows full progress.
+Resume tailoring is done by the agent. Steps:
 
 1. **Read the JD**: `jobhunt show <job_id>` — get JD text from the `--- JD ---` section
 2. **Read the classify prompt**: `{baseDir}/references/prompts/classify.md`
 3. **Classify**: Send JD + classify prompt → get base direction (`ai`/`ic`/`mgmt`/`venture`)
 4. **Read base resume**: `$data_dir/profile/base-resumes/base-resume-<direction>.md`
-   - `ai` → `base-cv-ai-engineer.md`
-   - `ic` → `base-resume-ic.md`
-   - `mgmt` → `base-resume-mgmt.md`
-   - `venture` → `base-resume-venture-builder.md`
+   - `ai` → `base-cv-ai-engineer.md` | `ic` → `base-resume-ic.md`
+   - `mgmt` → `base-resume-mgmt.md` | `venture` → `base-resume-venture-builder.md`
 5. **Read the tailor prompt**: `{baseDir}/references/prompts/tailor.md`
 6. **Tailor**: Send JD + base resume + tailor prompt → get tailored resume markdown
 7. **Write output**: Save to `~/.openclaw/data/jobhunt/resumes/<job_id>/tailored.md`
@@ -143,335 +119,18 @@ Resume tailoring is done by the agent, NOT the CLI. The CLI provides data; the a
 10. **Update status**: `jobhunt status <job_id> --set tailored --note "Base: <direction>"`
 11. **Write meta**: Save `resumes/<job_id>/meta.json` with prompt hash, base direction, timestamp
 
-### Prompt Templates
-
-All prompts live in the workspace (version-controlled):
-- `{baseDir}/references/prompts/classify.md`
-- `{baseDir}/references/prompts/tailor.md`
-- `{baseDir}/references/prompts/analyze.md`
-
-### meta.json Format
-
-```json
-{
-  "job_id": 42,
-  "base_direction": "ic",
-  "tailor_prompt_sha256": "abc123...",
-  "tailored_at": "2026-02-27T03:00:00Z"
-}
-```
-
 ---
 
-## Full Pipeline Workflow (Tailor + Apply)
+## Pipeline Overview
 
-A single subagent can run the complete pipeline for one job: tailor the resume, then apply.
-
-**GLOBAL LOGGING RULE**: Every single step of the pipeline — tailor classification, resume generation, PDF creation, browser navigation, form fills, uploads, status updates, errors — MUST be logged to `~/.openclaw/data/jobhunt/pipeline-run.log` with timestamps. Format: `[YYYY-MM-DDTHH:MM:SSZ] Job <id>: <action>`. This file is monitored via `tail -f` for real-time progress.
-
-### Single Job Pipeline
-
-For one job:
-
-1. **Read job info**: `uv run --directory {baseDir} python scripts/cli.py show <job_id>` → get status, URL, JD
-2. **Check status**:
-   - `new` → proceed to step 3 (Tailor)
-   - `tailored` → proceed to step 4 (Verify artifacts)
-   - `skipped`/`blocked`/`apply_failed`/`applied` → STOP, report "Job not eligible, status=<status>"
-3. **Tailor** — follow the Tailor Workflow section below (steps 1-11). When done, job status = `tailored`.
-4. **Verify artifacts**: Check if `~/.openclaw/data/jobhunt/resumes/<job_id>/tailored.md` and `resume.pdf` exist. If missing, run the Tailor Workflow to generate them (even if status is already `tailored`). If PDF generation fails, proceed with `tailored.md` only.
-5. **Apply** — follow the Apply Workflow section below (steps 1-13).
-6. **Report**: Summarize what happened (tailored? applied? blocked? why?)
-
-### Batch Pipeline (Multiple Jobs)
-
-A single subagent processes multiple jobs sequentially in one session. This is the preferred mode for bulk apply runs.
-
-**How to invoke:**
-```
-sessions_spawn(
-  task: "Run batch pipeline. Read SKILL.md at ~/.openclaw/workspace/skills/jobhunt/SKILL.md, follow the Batch Pipeline section. Job queue: <comma-separated IDs newest first>",
-  label: "pipeline-batch",
-  mode: "run",
-  model: "sonnet"
-)
-```
-
-**Batch execution rules:**
-1. Process jobs one at a time, in the given order
-2. For EACH job: run the full Single Job Pipeline above (tailor + apply)
-3. **After each job (any outcome)**: close ALL browser tabs, then immediately start the next job
-4. **On failure/block**: log the error, set status (`blocked` or `apply_failed`), and MOVE ON — never stop the batch
-5. **Logging is mandatory**: Before starting each job, log: `[timestamp] === BATCH: Starting job <id> (<company> - <title>) [<N>/<total>] ===`. After each job, log: `[timestamp] === BATCH: Job <id> result: <applied|blocked|apply_failed> ===`
-6. **Every action must be logged** — tailor classification, resume write, PDF generation, browser navigation, each form field filled, uploads, errors, retries. The log file is the single source of truth for monitoring. If it is not in the log, it did not happen.
-7. **At batch end**: log a summary table of all results
-
-**Logging implementation**: After every tool call that changes state, immediately append a line:
-```bash
-echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Job <id>: <description>" >> ~/.openclaw/data/jobhunt/pipeline-run.log
-```
-
-**Critical context (always include in task prompt):**
-- Email: haomin.liu@gmail.com. Password pattern: HaominLiu@2026!
-- Browser: profile="openclaw", target="host" on every call
-- Gmail verification: `gog gmail messages search "from:<domain> newer_than:1h" --max 5 --account haomin.liu@gmail.com` then `gog gmail get <id> --account haomin.liu@gmail.com --plain`
-- Base resumes: $data_dir/profile/base-resumes/
-- Tailor prompts: ~/.openclaw/workspace/tool-dev/jobhunt/prompts/
-- Status updates: `uv run --directory {baseDir} python scripts/cli.py status <id> --set <status>`
-- Platform knowledge: ~/.openclaw/data/jobhunt/apply-knowledge/platforms/
-- NEVER run `openclaw gateway restart`
-
----
-
-## Apply Workflow (Agent-Driven Browser Automation)
-
-Job application is done by a **spawned subagent** using the OpenClaw browser tool. The CLI is not involved in the apply process itself.
-
-### Trigger
-
-Orchestrator (Kibi) spawns a subagent with:
-```
-task: "Apply to job <job_id>. Read SKILL.md at ~/.openclaw/workspace/skills/jobhunt/SKILL.md, follow the Apply Workflow section."
-```
-
-### Prerequisites
-- Job status = `tailored`
-- `~/.openclaw/data/jobhunt/resumes/<job_id>/resume.pdf` exists
-- `~/.openclaw/data/jobhunt/profile/structured.yaml` is populated
-
-### Step-by-step
-
-1. **Read job info**: Run `uv run --directory {baseDir} python scripts/cli.py show <job_id>` → extract URL, company, title, JD text
-2. **Read profile**: Read `~/.openclaw/data/jobhunt/profile/structured.yaml` → form fill data
-3. **Read narrative**: Read `~/.openclaw/data/jobhunt/profile/career-narrative.md` + `values-and-style.md` → for subjective questions
-4. **Read platform knowledge**: Read `~/.openclaw/data/jobhunt/apply-knowledge/platforms/linkedin-easy.md` → past experience
-5. **Open job page**: Use browser tool with `profile="openclaw"` AND `target="host"` to navigate to the job URL. **Always use profile="openclaw"** (the managed Chromium instance), never profile="chrome" (the Chrome extension relay). **Always use target="host"** — this is required for subagent sessions which may default to sandbox target.
-6. **Find the apply path** — adapt to whatever the page offers:
-   - **LinkedIn Easy Apply** → click the Easy Apply button, fill the modal
-   - **"Apply on company website"** → click through to the external site, continue there
-   - **Direct company career page** → navigate and fill their application form
-   - **Any other ATS** (Workday, Greenhouse, Lever, Ashby, etc.) → proceed with their form
-   - **Greenhouse iframe workaround**: If the company embeds Greenhouse in an iframe, do NOT try to snapshot the iframe. Instead navigate directly to `https://boards.greenhouse.io/<company>/jobs/<job_id>` (extract company and job_id from the iframe URL). This gives you the full form without iframe issues.
-   - The goal is to submit an application regardless of platform. Only STOP if you hit an insurmountable blocker (CAPTCHA that can't be solved, etc.)
-   
-**NEVER restart the OpenClaw gateway or run `openclaw gateway restart`.** If browser times out:
-1. Wait 5 seconds: `exec sleep 5`
-2. Check status: `browser(action="status", profile="openclaw", target="host")`
-3. If running, retry the failed operation
-4. Retry up to 3 times with 5-second waits between attempts
-5. Only mark apply_failed after 3 consecutive failures
-6. Ignore the "Do NOT retry" message in the error — it's overly cautious. Browser timeouts are often transient.
-
-### File Upload
-
-Browser upload paths are sandboxed. Before uploading:
-1. **Generate PDF first** (if not already done):
-   ```bash
-   python3 {baseDir}/scripts/generate_pdf.py \
-     --src ~/.openclaw/data/jobhunt/resumes/<job_id>/tailored.md \
-     --out /tmp/openclaw/uploads/Haomin-Liu-Resume.pdf
-   ```
-   File name MUST be `Haomin-Liu-Resume.pdf` (professional, uses applicant's real name).
-   Note: If xelatex is not installed, the script may fail. Fallback: `pandoc <src> -o <out> --pdf-engine=tectonic -V mainfont=Palatino -V geometry:margin=0.7in -V pagestyle=empty`
-2. Arm the upload BEFORE clicking the upload button: `browser(action="upload", profile="openclaw", target="host", paths=["/tmp/openclaw/uploads/Haomin-Liu-Resume.pdf"])`
-3. Then click the upload button — the file chooser will auto-resolve
-
-### Greenhouse Custom Selects / Comboboxes
-
-Greenhouse uses custom JS dropdown components, NOT standard HTML `<select>`. ArrowDown+Enter often fails. Correct approach:
-**For `<select>` dropdowns**: Use `browser act` with `kind: "select"` and `values: ["option_value"]`. This is instant — no click+snapshot cycle needed.
-
-**For combobox (text input + dropdown list)**: 
-1. Click the input → type value → click matching option. Do NOT snapshot between these — just act sequentially.
-2. Only snapshot if the first attempt fails.
-
-**Batch execution principle**: After ONE snapshot, plan ALL field actions for the visible form, then execute them in rapid sequence WITHOUT intermediate snapshots. Only snapshot again after completing the batch or when navigating to a new page/step.
-
-### Form Filling Strategy
-
-### Education
-
-Haomin has TWO degrees. ALWAYS fill both:
-1. M.Eng, Computer Engineering, University of Electronic Science & Technology of China
-2. B.S., Computer Engineering, University of Electronic Science & Technology of China
-
-If the form has "Add Another" for education, click it to add the second degree.
-
-### Work Experience Consistency
-
-If the application form asks you to manually enter work experience (job titles, companies, dates, descriptions), **always use the tailored resume as the source of truth**. Read `~/.openclaw/data/jobhunt/resumes/<job_id>/tailored.md` and copy the experience entries from there. Do NOT make up different descriptions — the form entries must match the uploaded resume.
-
-### Systematic Form Filling
-
-Do NOT scroll back and forth. Follow this systematic approach:
-1. Snapshot the visible form area
-2. Fill all visible fields top-to-bottom
-3. After filling visible fields, scroll down once
-4. Snapshot again, fill new visible fields
-5. Repeat until reaching the Submit button
-6. Before submitting: scroll back to top and do ONE verification pass
-7. Submit
-
-### Login / Authentication Handling
-
-When you encounter a login wall on any platform:
-
-**Credential source: macOS Keychain ONLY. Do NOT use 1Password (`op`).**
-
-**Email**: `haomin.liu@gmail.com` (use this for ALL platform registrations and logins)
-
-**Step 1: Check Keychain for existing accounts**
-```bash
-security find-generic-password -a "haomin.liu@gmail.com" -s "jobhunt:<domain>" -w 2>/dev/null
-```
-- If found → use those credentials to sign in
-- If login fails → proceed to Step 2
-
-**Step 2: Register new account**
-- Look for "Create Account" / "Sign Up" / "Register" button
-- Use `haomin.liu@gmail.com`
-- Password pattern: `HaominLiu@2026!` (meets most requirements: upper+lower+number+special+8chars)
-- **Immediately save to Keychain** after successful registration:
-  ```bash
-  security add-generic-password -a "<email_used>" -s "jobhunt:<domain>" -w "<password>" -U
-  ```
-
-**Step 3: If registration also fails** (email verification required, CAPTCHA, etc.)
-- Mark `blocked` with note explaining the exact situation
-- Do NOT keep retrying endlessly
-
-**SSO / OAuth**: If "Sign in with Google" or "Sign in with LinkedIn" is available, try it (LinkedIn session may already be active in the browser).
-
-Login is NOT a reason to stop. It's a normal part of applying. Handle it.
-
-### Credential Storage (MANDATORY)
-
-Use **macOS Keychain** (not 1Password) for credential storage — it requires no manual authorization.
-
-When you create a new account or use a password during apply:
-1. **Save immediately after successful login/registration**:
-   ```bash
-   # Save password
-   security add-generic-password -a "<email>" -s "jobhunt:<domain>" -w "<password>" -U
-   # Example: security add-generic-password -a "haomin.liu@gmail.com" -s "jobhunt:myworkdaysite.com" -w "MyPass@2026!" -U
-   ```
-2. **Retrieve when needed**:
-   ```bash
-   security find-generic-password -a "<email>" -s "jobhunt:<domain>" -w
-   ```
-3. Service name convention: `jobhunt:<domain>` (e.g., `jobhunt:myworkdaysite.com`, `jobhunt:greenhouse.io`)
-4. Log the credential save in the apply log (but NOT the actual password)
-5. The `-U` flag updates existing entries if they already exist
-7. **Fill form — BATCH strategy (critical for speed)**:
-   
-   **The #1 rule: minimize LLM round trips.** Each snapshot + action = ~25s. A 10-field form should take 2-3 snapshots, not 10.
-   
-   **Workflow per form page:**
-   1. Take ONE snapshot → read ALL visible fields
-   2. Plan all actions: which fields need filling, what values, which refs
-   3. Execute ALL text fills in rapid sequence (no snapshots between them)
-   4. Execute ALL select/dropdown fills in sequence (use `kind: "select"` for `<select>` elements)
-   5. For comboboxes: click → type → click option (3 actions, no snapshot needed between them)
-   6. Take ONE verification snapshot after all fields are done
-   7. If something's wrong, fix only that field, don't re-snapshot everything
-   8. Click Next/Submit
-   
-   **What NOT to do:** snapshot → fill one field → snapshot → fill one field → snapshot... This is 3x slower.
-   
-   - **Contact info** (name, email, phone): match from `structured.yaml` → `personal.*` fields. Usually pre-filled; only fix if wrong.
-   - **Resume upload**: ALWAYS upload the job-specific resume from `~/.openclaw/data/jobhunt/resumes/<job_id>/resume.pdf` (or `tailored.md` if no PDF). Even if the platform already has a previously uploaded resume, DELETE or REPLACE it with the tailored version for THIS job. Every application must use its own tailored resume — never reuse a previous upload.
-   - **Cover letter** (if upload option exists): upload `resumes/<job_id>/cover-letter.pdf` if it exists
-   - **Structured questions** (dropdowns, radio buttons, short text):
-     - Years of experience → `structured.yaml` → `experience.total_years` or `experience.by_skill.<name>`
-     - Visa/sponsorship → `structured.yaml` → `work_authorization.*`
-     - Willing to relocate → `structured.yaml` → `preferences.willing_to_relocate`
-     - Diversity questions → `structured.yaml` → `diversity.*`
-     - Other → try to match semantically from structured.yaml
-   - **Open-ended text questions**:
-     - Read the question carefully
-     - Generate answer using: JD content + company context + career-narrative.md + values-and-style.md + the tailored resume positioning
-     - Answer must be specific to this company/role, sound authentic (direct, honest, not corporate boilerplate)
-     - Respect any character limit on the input field
-     - If you are not confident the answer is good enough → do NOT submit → mark `blocked` with note "Needs human input: <exact question>"
-   - Click **Next / Continue** after each step
-8. **Submit**: Click "Submit application" (or equivalent)
-9. **Verify**: Take a snapshot, look for confirmation text ("Application submitted", "Your application was sent", etc.)
-   - If "Already applied" detected → status = `applied`, note = "Previously applied"
-   - If no confirmation detected → status = `apply_failed`, note = "No confirmation detected"
-10. **Write apply log**: Create `~/.openclaw/data/jobhunt/apply-log/<job_id>.md` with format:
-
-```markdown
-# Apply Log: <company> — <title>
-Job ID: <id>
-Date: <ISO 8601 timestamp>
-Platform: LinkedIn Easy Apply
-Job URL: <url>
-
-## Steps
-1. [HH:MM:SS] <action taken>
-2. [HH:MM:SS] <action taken>
-...
-
-## Fields Filled
-- Field: "<field name>" → Value: "<value entered>" (source: structured.yaml | tailored.md | generated)
-- Field: "<field name>" → Value: "<value entered>"
-...
-
-## Questions Answered
-- "<question text>" → "<answer given>" (source: structured.yaml | generated)
-
-## Result
-Status: applied | blocked | apply_failed
-Duration: <seconds>s
-Notes: <any issues or observations>
-```
-
-### Logging Requirements
-
-**Pipeline log** (`~/.openclaw/data/jobhunt/pipeline-run.log`): Append timestamped entries for EVERY significant action:
-- Each form field filled: `[timestamp] Job <id>: Filled "<field>" = "<value>"`
-- Each page/step transition: `[timestamp] Job <id>: Navigated to <step/page>`
-- Resume upload: `[timestamp] Job <id>: Uploaded resume from <path>`
-- Questions answered: `[timestamp] Job <id>: Answered "<question>" = "<answer>"`
-- Errors/retries: `[timestamp] Job <id>: Error: <description>, retrying...`
-- Final result: `[timestamp] Job <id>: Result: <applied|blocked|apply_failed> - <reason>`
-
-Be verbose. The log should allow someone running `tail -f` to see exactly what the agent is doing in real time.
-
-11. **Update status**: Run `uv run --directory {baseDir} python scripts/cli.py status <id> --set <status> --note "<note>"`
-12. **Clean up browser tabs**: After each job is done (applied, blocked, or failed), close ALL open tabs to free resources:
-    ```
-    browser(action="tabs", profile="openclaw", target="host")
-    ```
-    Then for each tab: `browser(action="close", profile="openclaw", target="host", targetId="<id>")`
-    This prevents tab accumulation when running multiple jobs in sequence.
-13. **Update knowledge base**: Append any new findings to `~/.openclaw/data/jobhunt/apply-knowledge/platforms/linkedin-easy.md`:
-    - New question types encountered
-    - Form structure changes
-    - Strategies that worked or failed
-
-### Failure Handling
-
-| Situation | Action |
-|-----------|--------|
-| Session expired / login required | `apply_failed` + note "Session expired" + notify orchestrator |
-| Easy Apply button missing | `blocked` + note "No Easy Apply" |
-| Required field can't be filled | `apply_failed` + note which field |
-| Open-ended question, low confidence | `blocked` + note "Needs human input: <question>" |
-| CAPTCHA | `apply_failed` + note "CAPTCHA" + notify orchestrator |
-| No confirmation after submit | `apply_failed` + note "No confirmation detected" |
-| "Already applied" | `applied` + note "Previously applied" |
-
-**Critical rules**:
-- Never silently fail. Every outcome must have a log entry and a status update.
-- **ANY password created or used during apply MUST be saved to macOS Keychain** (`security add-generic-password -a "<email>" -s "jobhunt:<domain>" -w "<password>" -U`). No exceptions.
-- **Work experience entries filled in application forms MUST match the tailored resume** (`resumes/<job_id>/tailored.md`). Do not invent or freestyle experience — copy from the tailored resume.
+The full pipeline (fetch → tailor → apply) is orchestrated by `scripts/pipeline.py`. Agents are spawned per-job. See that script for orchestration logic and batch job handling.
 
 ---
 
 ## Architecture Notes
 
-- **LinkedIn feed**: Recommended feed has ~24 cards total (not paginated). Viewport set to 4000px to render all at once.
-- **Dedup**: By `(platform, platform_id)`. If a job exists in DB, fetch skips it entirely (no detail page visit).
-- **Credentials**: macOS Keychain only. Email: `haomin.liu@gmail.com`. Register if no account.
+- **LinkedIn feed**: Recommended feed has ~24 cards total. Viewport set to 4000px to render all at once.
+- **Dedup**: By `(platform, platform_id)`. Existing jobs are skipped entirely.
+- **Credentials**: macOS Keychain only. Email: `haomin.liu@gmail.com`.
 - **DB**: SQLite stdlib, `user_version` pragma for schema migration tracking.
+- **Platform knowledge**: `references/platforms/` — updated by apply agents after each session.
