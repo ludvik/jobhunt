@@ -452,13 +452,19 @@ DIRECTION: <ai|ic|mgmt|venture>
         log.error("PIPELINE: Job %d: Tailor LLM call failed (exit %d)", jid, result.returncode)
         return False
 
-    # Parse output
+    # Parse output — openclaw agent --json returns {result: {payloads: [{text: "..."}]}}
     try:
         import json as _json
         agent_out = _json.loads(result.stdout)
-        response_text = agent_out.get("result", agent_out.get("output", ""))
+        res = agent_out.get("result", {})
+        if isinstance(res, dict):
+            payloads = res.get("payloads", [])
+            response_text = payloads[0]["text"] if payloads else ""
+        else:
+            response_text = str(res)
     except Exception:
         response_text = result.stdout
+    response_text = str(response_text)
 
     # Extract direction and resume
     direction = "ic"  # default
