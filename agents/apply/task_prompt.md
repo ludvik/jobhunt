@@ -10,6 +10,16 @@ job application for job $job_id and update the DB status accordingly.
 - Skill dir: $skill_dir
 - Data dir: $data_dir
 
+## Step 0: Clean browser (MANDATORY before anything else)
+
+Kill ALL existing browser tabs to prevent ref collisions:
+```
+browser(action="tabs", profile="openclaw", target="host")
+# Close every tab listed:
+browser(action="close", profile="openclaw", target="host", targetId="<id>")
+```
+Only proceed after ALL tabs are closed. This prevents ref numbering conflicts across tabs.
+
 ## Setup (read ONCE at start, before doing anything else)
 
 1. **structured.yaml**: `$data_dir/profile/structured.yaml` — contact info, work auth, preferences, diversity answers
