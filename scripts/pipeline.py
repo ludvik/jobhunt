@@ -372,6 +372,149 @@ def run_fetch(config: dict, dry_run: bool, log: logging.Logger,
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
+# ── Code-driven tailor (1 LLM call) ──────────────────────────────────────────
+def run_tailor_direct(job: dict, config: dict, db_path: Path, log: logging.Logger,
+                      skill_dir: Path = SKILL_DIR, data_dir: Path = DATA_DIR) -> bool:
+    """Tailor a resume using code-driven LLM call. Returns True on success."""
+    jid = job["id"]
+
+    # 1. Read JD from DB
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT jd_text, title, company FROM jobs WHERE id=?", (jid,)).fetchone()
+    if not row or not row["jd_text"]:
+        log.error("PIPELINE: Job %d: No JD text in DB", jid)
+        return False
+    jd_text = row["jd_text"]
+
+    # 2. Read prompts
+    classify_prompt_path = skill_dir / "references" / "prompts" / "classify.md"
+    tailor_prompt_path = skill_dir / "references" / "prompts" / "tailor.md"
+    if not classify_prompt_path.exists() or not tailor_prompt_path.exists():
+        log.error("PIPELINE: Job %d: Prompt files missing", jid)
+        return False
+    classify_prompt = classify_prompt_path.read_text()
+    tailor_prompt = tailor_prompt_path.read_text()
+
+    # 3. Read all base resumes
+    base_resume_dir = data_dir / "profile" / "base-resumes"
+    direction_map = {
+        "ai": "base-cv-ai-engineer.md",
+        "ic": "base-resume-ic.md",
+        "mgmt": "base-resume-mgmt.md",
+        "venture": "base-resume-venture-builder.md",
+    }
+
+    # 4. Single LLM call: classify + tailor combined
+    combined_prompt = f"""You have TWO tasks. Complete both in ONE response.
+
+## TASK 1: Classify
+{classify_prompt}
+
+## TASK 2: Tailor
+{tailor_prompt}
+
+## Input
+
+### Job Description
+{jd_text}
+
+### Available Base Resumes
+"""
+    for direction, filename in direction_map.items():
+        resume_path = base_resume_dir / filename
+        if resume_path.exists():
+            combined_prompt += f"\n#### Direction: {direction}\n{resume_path.read_text()}\n"
+
+    combined_prompt += """
+## Output Format
+Respond with EXACTLY this format (no other text):
+
+DIRECTION: <ai|ic|mgmt|venture>
+---RESUME---
+<tailored resume markdown>
+"""
+
+    # Call LLM via openclaw agent with no-tool instruction
+    log.info("PIPELINE: Job %d: Running code-driven tailor (single LLM call)", jid)
+    session_id = f"jobhunt-tailor-{jid}"
+    
+    result = subprocess.run(
+        ["openclaw", "agent",
+         "--session-id", session_id,
+         "--message", f"RESPOND DIRECTLY. Do NOT use any tools. Do NOT read any files. All input is below.\n\n{combined_prompt}",
+         "--thinking", "off",
+         "--model", "sonnet",
+         "--timeout", "120",
+         "--json"],
+        capture_output=True, text=True, timeout=150
+    )
+
+    if result.returncode != 0:
+        log.error("PIPELINE: Job %d: Tailor LLM call failed (exit %d)", jid, result.returncode)
+        return False
+
+    # Parse output
+    try:
+        import json as _json
+        agent_out = _json.loads(result.stdout)
+        response_text = agent_out.get("result", agent_out.get("output", ""))
+    except Exception:
+        response_text = result.stdout
+
+    # Extract direction and resume
+    direction = "ic"  # default
+    resume_md = response_text
+    
+    if "DIRECTION:" in response_text and "---RESUME---" in response_text:
+        parts = response_text.split("---RESUME---", 1)
+        header = parts[0]
+        resume_md = parts[1].strip() if len(parts) > 1 else ""
+        for d in ["ai", "ic", "mgmt", "venture"]:
+            if f"DIRECTION: {d}" in header.lower() or f"DIRECTION: {d}" in header:
+                direction = d
+                break
+    elif response_text.strip():
+        # Fallback: assume entire response is the resume
+        resume_md = response_text.strip()
+
+    if not resume_md or len(resume_md) < 100:
+        log.error("PIPELINE: Job %d: Tailor output too short (%d chars)", jid, len(resume_md))
+        return False
+
+    # 5. Write output files
+    resume_dir = data_dir / "resumes" / str(jid)
+    resume_dir.mkdir(parents=True, exist_ok=True)
+    (resume_dir / "tailored.md").write_text(resume_md)
+    
+    import json as _json
+    meta = {
+        "job_id": jid,
+        "title": job["title"],
+        "company": job["company"],
+        "base_direction": direction,
+        "base_resume": direction_map.get(direction, "base-resume-ic.md"),
+        "tailored_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    (resume_dir / "meta.json").write_text(_json.dumps(meta, indent=2))
+
+    # 6. Update DB status
+    update_result = subprocess.run(
+        ["uv", "run", "--directory", str(skill_dir), "python", "scripts/cli.py",
+         "status", str(jid), "--set", "tailored", "--note", f"Base: {direction}"],
+        capture_output=True, text=True, timeout=30
+    )
+    if update_result.returncode != 0:
+        log.warning("PIPELINE: Job %d: Status update failed, trying direct SQL", jid)
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "UPDATE jobs SET status='tailored', status_updated_at=datetime('now') WHERE id=?",
+                (jid,))
+
+    log.info("PIPELINE: Job %d: Tailored (direction=%s, %d chars)", jid, direction, len(resume_md))
+    return True
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="jobhunt pipeline orchestrator")
     parser.add_argument("--dry-run", action="store_true",
@@ -475,37 +618,14 @@ def main() -> None:
         if job["status"] == "new":
             log.info("PIPELINE: === Tailor job %d (%s @ %s) [%d/%d] ===",
                      jid, job["title"], job["company"], i + 1, total)
-            prompt_vars = {
-                "job_id": jid,
-                "job_title": job["title"],
-                "company": job["company"],
-                "job_url": job["url"],
-                "skill_dir": str(SKILL_DIR),
-                "data_dir": str(DATA_DIR),
-            }
-            prompt = load_prompt("tailor", prompt_vars)
-            timeout = tailor_cfg.get("tailor_timeout", 600)
-            thinking = tailor_cfg.get("thinking_level", "low")
-            session_id = f"jobhunt-tailor-{jid}"
-
-            agent_result = run_agent(session_id, prompt, timeout, thinking, args.dry_run, log)
-
-            if "error" in agent_result:
-                log.error("PIPELINE: Job %d: Tailor failed — %s", jid, agent_result["error"])
-                results["tailor_failed"] += 1
-                continue
-
-            # Poll DB for status change (max 60s)
-            log.info("PIPELINE: Job %d: Polling DB for status=tailored (up to 60s)...", jid)
-            new_status: str | None = None
-            for _ in range(30):
-                time.sleep(2)
-                new_status = get_job_status(db_path, jid)
-                if new_status == "tailored":
-                    log.info("PIPELINE: Job %d: DB status confirmed = tailored", jid)
-                    break
+            if args.dry_run:
+                log.info("PIPELINE: [DRY RUN] Would tailor job %d", jid)
             else:
-                log.warning("PIPELINE: Job %d: DB polling timed out (60s). Status = %s", jid, new_status)
+                success = run_tailor_direct(job, config, db_path, log)
+                if not success:
+                    log.error("PIPELINE: Job %d: Tailor failed", jid)
+                    results["tailor_failed"] += 1
+                    continue
 
             if new_status != "tailored":
                 log.error("PIPELINE: Job %d: Status still '%s' after tailor agent. Skipping apply.",
