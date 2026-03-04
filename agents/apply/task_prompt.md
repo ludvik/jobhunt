@@ -141,7 +141,7 @@ If found → use those credentials.
 
 Step 2: If no keychain entry or login fails → register:
 - Email: `haomin.liu@gmail.com`
-- Password: `HaominLiu@2026!`
+- Password: `{job_apply_password}`
 - Save to keychain immediately after success:
   ```bash
   security add-generic-password -a "haomin.liu@gmail.com" -s "jobhunt:<domain>" -w "HaominLiu@2026!" -U
