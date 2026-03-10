@@ -179,8 +179,13 @@ Take a snapshot. Look for confirmation text ("Application submitted", "Your appl
 uv run --directory $skill_dir python scripts/cli.py status $job_id --set <status> --note "<note>"
 ```
 
-### 9. Write apply log
+### 9. Write apply log (MANDATORY — on success, blocked, or failure)
 Create `$data_dir/apply-log/$job_id.md`:
+
+Before exiting for any reason, you MUST write this log file.
+If the run fails or gets blocked, the log must include the concrete reason, the last page reached, the last successful action, the exact failing action, and any visible error text.
+If you mark `apply_failed`, do not write vague notes like "failed" or "no confirmation" alone — explain the observed cause.
+Also record whether DB status write-back succeeded and whether browser tab cleanup succeeded.
 
 ```markdown
 # Apply Log: <company> — <title>
@@ -212,11 +217,12 @@ After completing (regardless of outcome):
 1. **Platform lessons**: If you encountered new patterns, tricks, or gotchas → update the platform file in `$skill_dir/references/platforms/`.
    - **Consolidate, don't append**: Read the existing file first. Merge your new insight into the relevant section. Remove redundant/outdated entries. The file should stay concise and actionable — not a growing log of per-job observations.
    - **File naming**: Use the ATS product name with hyphens (e.g., `amazon-jobs.md`, `walmart-careers.md`). NEVER use dots in filenames. NOT company-specific subdomains (e.g., `successfactors-portal.md` not `career5.successfactors-portal.md`). Check existing files first — do NOT create a duplicate.
-2. **Difficulties**: If blockers or unexpected failures → send a brief Discord report:
+2. **Difficulties / postmortem**: If blockers, unexpected failures, or uncertain outcomes happen, you MUST send a brief Discord report with the concrete cause and current state:
    ```
-   openclaw message send --channel discord --target $discord_channel --message "Apply Agent Report (Job $job_id - $company): <description>"
+   openclaw message send --channel discord --target $discord_channel --message "Apply Agent Report (Job $job_id - $company): status=<applied|blocked|apply_failed>; last_page=<url_or_page>; blocker=<exact blocker>; last_action=<action>; next_debug_hint=<what should be checked next>"
    ```
 3. Routine successes → no action needed.
+4. Treat this postmortem/report step as REQUIRED for every non-success outcome. Do not skip it even if the run is timing out.
 
 ---
 
