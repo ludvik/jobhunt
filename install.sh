@@ -17,16 +17,19 @@ uv run playwright install chromium
 # ── Agent setup ───────────────────────────────────────────────────────────────
 
 # Create openclaw agent 'jobhunt-apply' (idempotent)
+AGENT_WS="$HOME/.openclaw/agents/jobhunt-apply/workspace"
 if ! openclaw agents list 2>/dev/null | grep -q "jobhunt-apply"; then
-  openclaw agents add --name jobhunt-apply
-  echo "Created openclaw agent: jobhunt-apply"
+  mkdir -p "$AGENT_WS"
+  openclaw agents add jobhunt-apply --non-interactive --workspace "$AGENT_WS"
+  # Remove default scaffolded files — agent workspace should only contain SKILL.md
+  rm -f "$AGENT_WS"/{AGENTS.md,BOOTSTRAP.md,HEARTBEAT.md,IDENTITY.md,SOUL.md,TOOLS.md,USER.md}
+  rm -rf "$AGENT_WS"/{memory,.git,.openclaw}
+  echo "Created openclaw agent: jobhunt-apply (cleaned default files)"
 else
   echo "Agent jobhunt-apply already exists — skipping."
 fi
 
 # Symlink SKILL.md into the agent's workspace
-AGENT_WS="$HOME/.openclaw/agents/jobhunt-apply/workspace"
-mkdir -p "$AGENT_WS"
 ln -sf "$SKILL_DIR/SKILL.md" "$AGENT_WS/SKILL.md"
 echo "Symlinked SKILL.md → $AGENT_WS/SKILL.md"
 
