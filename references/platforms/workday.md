@@ -39,6 +39,9 @@ Requires selecting from dropdown; typing does not auto-commit. If dropdown doesn
 ## Session Persistence
 Workday server-saves form data per step. If tab closes mid-application, log back in, navigate back to apply URL — completed steps are restored. Exception: Self Identify disability form date must be re-entered.
 
+## Timeout Note
+Workday 6-step forms take 15-25 minutes to complete. The pipeline apply_timeout is 900s (15min) — if the job requires many work experience entries, prioritize speed: fill only required fields, skip optional ones.
+
 ## CC-305 Disability Form Date
 Spinbutton JS assignment does NOT work. Use Calendar button — Workday pre-selects today's date as highlighted, just click it.
 

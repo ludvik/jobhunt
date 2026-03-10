@@ -37,8 +37,24 @@ After each selection, refs shift (React re-renders). Always re-snapshot before n
 If option click leaves `aria-invalid="true"`, force-set via DOM events or JS state.
 
 ## Phone Country Widget (intl-tel-input)
-Click "Toggle flyout" button on `button.iti__selected-country` → dropdown opens → click "United States +1" (always first option).
-After selecting, phone auto-formats to `(NXX) NXX-XXXX`. May auto-populate from profile — verify via JS.
+Standard click approach often fails (dropdown doesn't render options reliably in automation). Use JS directly:
+```js
+// Force US country selection on intl-tel-input
+var phoneInput = document.querySelector('input[type=tel]') || document.getElementById('phone');
+if (phoneInput && phoneInput._intlTelInput) {
+  phoneInput._intlTelInput.setCountry('us');
+} else {
+  // Fallback: click the flag button then click US option
+  var btn = document.querySelector('button.iti__selected-country, .iti__flag-container button');
+  if (btn) btn.click();
+  setTimeout(function() {
+    var us = document.querySelector('li[data-country-code="us"]');
+    if (us) us.click();
+  }, 300);
+}
+```
+After selecting, phone field may auto-format. Re-fill phone value via nativeSetter if cleared.
+If intl-tel-input blocks form submit entirely, fill phone without country prefix (just digits) and skip country selector — Greenhouse usually defaults to US.
 
 ## Resume Upload
 1. Arm upload first (provide file path to upload arm)
