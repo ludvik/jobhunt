@@ -120,7 +120,8 @@ def load_agent_config(role: str, global_config: dict,
 
 # ── Agent invocation ──────────────────────────────────────────────────────────
 def run_agent(session_id: str, prompt: str, timeout: int, thinking: str,
-              dry_run: bool, log: logging.Logger, model: str | None = None) -> dict:
+              dry_run: bool, log: logging.Logger, model: str | None = None,
+              agent: str | None = None) -> dict:
     """Invoke openclaw agent, return parsed JSON result."""
     cmd = [
         "openclaw", "agent",
@@ -132,6 +133,8 @@ def run_agent(session_id: str, prompt: str, timeout: int, thinking: str,
     ]
     if model:
         cmd.extend(["--model", model])
+    if agent:
+        cmd.extend(["--agent", agent])
     log.info("PIPELINE: Invoking agent session=%s model=%s timeout=%ds", session_id, model or "default", timeout)
     log.debug("PIPELINE: Command: %s", " ".join(cmd))
 
@@ -476,6 +479,7 @@ DIRECTION: <ai|ic|mgmt|venture>
     
     result = subprocess.run(
         ["openclaw", "agent",
+         "--agent", "jobhunt-apply",
          "--session-id", session_id,
          "--message", f"RESPOND DIRECTLY. Do NOT use any tools. Do NOT read any files. All input is below.\n\n{combined_prompt}",
          "--thinking", "off",
@@ -813,6 +817,17 @@ def main() -> None:
         log.info("PIPELINE: [DRY RUN] Plan complete. No changes made.")
         sys.exit(0)
 
+    # Ensure jobhunt browser profile is running for apply phase
+    if queue_apply or queue_tailor:
+        try:
+            subprocess.run(
+                ["openclaw", "browser", "start", "--browser-profile", "jobhunt"],
+                capture_output=True, timeout=15,
+            )
+            log.info("PIPELINE: Jobhunt browser profile started (or already running)")
+        except Exception as e:
+            log.warning("PIPELINE: Failed to start jobhunt browser: %s", e)
+
     # Step 3: Unified sequential loop — tailor then apply each job
     tailor_cfg = load_agent_config("tailor", config)
     apply_cfg = load_agent_config("apply", config)
@@ -933,7 +948,8 @@ def main() -> None:
         model = apply_cfg.get("model", None)
         session_id = f"jobhunt-apply-{jid}"
 
-        agent_result = run_agent(session_id, prompt, timeout, thinking, args.dry_run, log, model=model)
+        agent_name = apply_cfg.get("agent", "jobhunt-apply")
+        agent_result = run_agent(session_id, prompt, timeout, thinking, args.dry_run, log, model=model, agent=agent_name)
 
         if "error" in agent_result:
             log.error("PIPELINE: Job %d: Apply agent error — %s", jid, agent_result["error"])
