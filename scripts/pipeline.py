@@ -131,11 +131,9 @@ def run_agent(session_id: str, prompt: str, timeout: int, thinking: str,
         "--timeout", str(timeout),
         "--json",
     ]
-    if model:
-        cmd.extend(["--model", model])
     if agent:
         cmd.extend(["--agent", agent])
-    log.info("PIPELINE: Invoking agent session=%s model=%s timeout=%ds", session_id, model or "default", timeout)
+    log.info("PIPELINE: Invoking agent session=%s model=%s timeout=%ds", session_id, model or "agent-default", timeout)
     log.debug("PIPELINE: Command: %s", " ".join(cmd))
 
     if dry_run:
