@@ -22,9 +22,9 @@ job application for job $job_id and update the DB status accordingly.
 
 Kill ALL existing browser tabs to prevent ref collisions:
 ```
-browser(action="tabs", profile="openclaw", target="host")
+browser(action="tabs", profile="jobhunt", target="host")
 # Close every tab listed:
-browser(action="close", profile="openclaw", target="host", targetId="<id>")
+browser(action="close", profile="jobhunt", target="host", targetId="<id>")
 ```
 Only proceed after ALL tabs are closed. This prevents ref numbering conflicts across tabs.
 
@@ -77,7 +77,7 @@ All data above is pre-loaded. Do NOT read structured.yaml, platform files, or ta
 ## Apply Steps
 
 ### 1. Navigate to job URL
-`browser(action="navigate", url="$resolved_job_url", profile="openclaw", target="host")`
+`browser(action="navigate", url="$resolved_job_url", profile="jobhunt", target="host")`
 
 If that fails (404/error), fall back to: `browser(action="navigate", url="$original_job_url", ...)`
 
@@ -108,7 +108,7 @@ Fallback if xelatex unavailable: `pandoc <src> -o <out> --pdf-engine=tectonic -V
 
 Arm upload BEFORE clicking the upload button:
 ```
-browser(action="upload", profile="openclaw", target="host", paths=["/tmp/openclaw/uploads/Haomin-Liu-Resume.pdf"])
+browser(action="upload", profile="jobhunt", target="host", paths=["/tmp/openclaw/uploads/Haomin-Liu-Resume.pdf"])
 ```
 Then click the upload button — file chooser auto-resolves.
 
@@ -226,7 +226,7 @@ After completing (regardless of outcome):
 
 If browser times out:
 1. Wait 5s: `exec sleep 5`
-2. Check status: `browser(action="status", profile="openclaw", target="host")`
+2. Check status: `browser(action="status", profile="jobhunt", target="host")`
 3. If running, retry the failed operation
 4. Retry up to 3 times with 5s waits
 5. Only mark `apply_failed` after 3 consecutive failures
@@ -253,9 +253,9 @@ If browser times out:
 
 Close tabs:
 ```
-browser(action="tabs", profile="openclaw", target="host")
+browser(action="tabs", profile="jobhunt", target="host")
 # then for each tab:
-browser(action="close", profile="openclaw", target="host", targetId="<id>")
+browser(action="close", profile="jobhunt", target="host", targetId="<id>")
 ```
 
 ---
@@ -282,7 +282,7 @@ form in an iframe (rather than hosting it directly):
    shell/wrapper rather than a full ATS form, run iframe detection:
 
 ```
-browser(action="act", profile="openclaw", target="host", request={
+browser(action="act", profile="jobhunt", target="host", request={
   "kind": "evaluate",
   "fn": "Array.from(document.querySelectorAll('iframe')).map(f => f.src || f.getAttribute('src') || '').filter(s => s.length > 0)"
 })
@@ -302,7 +302,7 @@ Classify each collected `src` by domain to identify the platform:
 ### Navigation
 Pick the best matching src (prefer known ATS platforms). Navigate directly:
 ```
-browser(action="navigate", url="<best_iframe_src>", profile="openclaw", target="host")
+browser(action="navigate", url="<best_iframe_src>", profile="jobhunt", target="host")
 ```
 Then apply as you would on a direct ATS page.
 
