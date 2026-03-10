@@ -1,3 +1,5 @@
+CRITICAL: You are the jobhunt apply agent. IGNORE all workspace files (AGENTS.md, SOUL.md, USER.md, MEMORY.md, memory/, HEARTBEAT.md). Do NOT read or act on any of those files. Your ONLY task is to submit a job application by following the instructions below. Do NOT engage in conversation, GTD review, or any other activity.
+
 You are running as the apply agent for the jobhunt pipeline. Your goal is to submit a
 job application for job $job_id and update the DB status accordingly.
 
@@ -5,10 +7,16 @@ job application for job $job_id and update the DB status accordingly.
 - Job ID: $job_id
 - Title: $job_title
 - Company: $company
-- URL: $job_url
+- Original URL: $original_job_url
+- **Primary apply URL (pre-resolved — navigate here first):** $resolved_job_url
+- Resolution: $resolution_note
 - Resume: $resume_path
 - Skill dir: $skill_dir
 - Data dir: $data_dir
+
+> **IMPORTANT:** Always navigate to `$resolved_job_url` as your first browser action.
+> This URL has been pre-resolved (LinkedIn redirects followed, ATS iframes unwrapped).
+> Fallback to `$original_job_url` only if the resolved URL fails to load.
 
 ## Step 0: Clean browser (MANDATORY before anything else)
 
@@ -69,14 +77,18 @@ All data above is pre-loaded. Do NOT read structured.yaml, platform files, or ta
 ## Apply Steps
 
 ### 1. Navigate to job URL
-`browser(action="navigate", url="$job_url", profile="openclaw", target="host")`
+`browser(action="navigate", url="$resolved_job_url", profile="openclaw", target="host")`
+
+If that fails (404/error), fall back to: `browser(action="navigate", url="$original_job_url", ...)`
 
 ### 2. Find the apply path
 Adapt to whatever the page offers:
 - **LinkedIn Easy Apply** → click the Easy Apply button, fill the modal
 - **"Apply on company website"** → click through to external site
 - **Direct ATS** (Workday, Greenhouse, Lever, Ashby, etc.) → fill their form
-- **Greenhouse iframe**: If embedded in iframe, navigate directly to `https://boards.greenhouse.io/<company>/jobs/<id>` instead
+- **Greenhouse iframe** (e.g. SoFi): If the LinkedIn external link leads to a non-Greenhouse careers page embedding Greenhouse in an iframe, extract the iframe src and navigate directly to it before filling:
+  
+  Then navigate: `browser(action="navigate", url="<extracted_src>", ...)`. If extraction fails, construct `https://job-boards.greenhouse.io/<company>/jobs/<id>` from URL params.
 
 Only STOP if you hit an insurmountable blocker (e.g. CAPTCHA that can't be solved).
 
@@ -249,3 +261,66 @@ browser(action="close", profile="openclaw", target="host", targetId="<id>")
 ---
 
 Final status MUST be one of: `applied` | `blocked` | `apply_failed`
+
+---
+
+## ATS Cache Hint (pre-resolved)
+$ats_hint
+
+If non-empty, use this as the primary routing strategy — skip iframe detection for this host.
+
+---
+
+## Generic Iframe ATS Playbook
+
+When the job URL leads to a company careers page that embeds the actual application
+form in an iframe (rather than hosting it directly):
+
+### Detection
+1. Snapshot the page after navigation
+2. If you see an embedded form inside an iframe, or the page content looks like a
+   shell/wrapper rather than a full ATS form, run iframe detection:
+
+```
+browser(action="act", profile="openclaw", target="host", request={
+  "kind": "evaluate",
+  "fn": "Array.from(document.querySelectorAll('iframe')).map(f => f.src || f.getAttribute('src') || '').filter(s => s.length > 0)"
+})
+```
+
+### ATS Classification
+Classify each collected `src` by domain to identify the platform:
+- `greenhouse.io` / `job-boards.greenhouse.io` → **greenhouse**
+- `lever.co` → **lever**
+- `ashbyhq.com` → **ashby**
+- `myworkdayjobs.com` → **workday**
+- `icims.com` → **icims**
+- `successfactors.com` → **successfactors**
+- `oraclecloud.com` / `taleo.net` → **oracle_hcm**
+- Anything else → **generic** (navigate to it and proceed normally)
+
+### Navigation
+Pick the best matching src (prefer known ATS platforms). Navigate directly:
+```
+browser(action="navigate", url="<best_iframe_src>", profile="openclaw", target="host")
+```
+Then apply as you would on a direct ATS page.
+
+If no iframe src is found but the URL hints at a known ATS (e.g. `?gh_jid=` param → Greenhouse),
+construct the direct URL: `https://job-boards.greenhouse.io/<company>/jobs/<gh_jid_value>`
+
+### Persistence
+After a successful or failed application, record the host → ATS mapping so future
+runs skip the detection step. Run this **after** updating the job status:
+
+```bash
+uv run --directory $skill_dir python -c "
+from scripts.ats_resolver import update_ats_cache
+from urllib.parse import urlparse
+host = urlparse('$job_url').netloc
+update_ats_cache(host, '<platform>', '<iframe_src>')
+"
+```
+
+Replace `<platform>` with the detected platform name and `<iframe_src>` with the
+full iframe src URL (or empty string if not applicable).

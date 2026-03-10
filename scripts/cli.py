@@ -360,3 +360,37 @@ def _db_path():
 
 if __name__ == "__main__":
     main()
+
+
+# ---------------------------------------------------------------------------
+# jobhunt ats-cache — update ATS host cache manually
+# ---------------------------------------------------------------------------
+
+
+@main.command("ats-cache")
+@click.option("--host", required=True, help="Hostname to record, e.g. sofi.com")
+@click.option(
+    "--platform", required=True,
+    type=click.Choice([
+        "greenhouse", "lever", "ashby", "workday", "icims",
+        "successfactors", "oracle_hcm", "smartrecruiters",
+        "rippling", "bamboohr", "generic",
+    ]),
+    help="ATS platform name.",
+)
+@click.option("--url", "iframe_src", default="", help="Iframe src URL (optional).")
+@click.option("--show", is_flag=True, help="Print current cache and exit (ignores other flags).")
+def cmd_ats_cache(host: str, platform: str, iframe_src: str, show: bool) -> None:
+    """View or update the ATS host cache (~/.openclaw/data/jobhunt/ats-host-cache.json)."""
+    from scripts.ats_resolver import load_ats_cache, update_ats_cache, ATS_CACHE_PATH
+
+    if show:
+        cache = load_ats_cache()
+        if not cache:
+            print(f"Cache empty: {ATS_CACHE_PATH}")
+        else:
+            print(json.dumps(cache, indent=2))
+        return
+
+    update_ats_cache(host, platform, iframe_src)
+    print(f"Updated: {host} -> {platform}" + (f" ({iframe_src})" if iframe_src else ""))

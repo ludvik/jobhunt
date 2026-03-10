@@ -70,3 +70,10 @@ Confirmation: URL contains `result=success`, heading says "Next steps of your ap
 - LinkedIn OAuth needs LinkedIn password (not in keychain) — always use email/password
 - Pre-filled data may be stale — verify before submitting
 - Select2 dropdowns and radio buttons always require JS workarounds
+
+## 10-Application Hard Limit
+Amazon enforces a maximum of 10 concurrent active applications per account. The block can surface in two ways:
+1. **Immediately on navigate** to `/applicant/jobs/{id}/apply` — heading "You've reached the maximum number of job applications." with no form shown.
+2. **After filling the full form** — error appears after clicking "Submit application" on the Review page.
+
+In both cases: mark status as `blocked`, note "Amazon 10-app limit — withdraw an existing application at https://www.amazon.jobs/applicant/dashboard then re-run the pipeline for this job."

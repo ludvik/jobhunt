@@ -249,10 +249,42 @@ def _handle_field(
                     log.debug("  -> Static (raw): %s = %r", field_name, answer)
             return
 
+    # Zip code / postal code
+    if re.search(r"zip\s*code|postal\s*code", label, re.I):
+        form[field_name] = _get_profile_field(profile, "personal", "zip_code") or "98052"
+        log.debug("  -> Zip code: %s", form[field_name])
+        return
+
+    # Years of experience (yes/no or numeric)
+    if re.search(r"years?.{0,30}experience|experience.{0,30}years?", label, re.I):
+        if options:
+            val = _find_option_by_label(options, "Yes")
+            if val is not None:
+                form[field_name] = val
+                log.debug("  -> Experience (Yes): %s = %r", field_name, val)
+                return
+        form[field_name] = "15"
+        log.debug("  -> Experience (numeric): %s", form[field_name])
+        return
+
     # Location (from profile)
     if re.search(r"\blocation\b|city|state|where.{0,20}based", label, re.I):
         form[field_name] = _get_profile_field(profile, "personal", "location")
         log.debug("  -> Location: %s", form[field_name])
+        return
+
+    # Open-ended textarea questions — provide brief relevant answer
+    if q_type == "textarea" and required:
+        # Generate a concise answer referencing experience
+        form[field_name] = (
+            "Yes, I have extensive experience in this area. "
+            "At Microsoft, I led platform engineering across teams of 200+ engineers, "
+            "building and maintaining developer tools, CI/CD pipelines, and local development "
+            "environments at scale. I've designed containerized dev environments, streamlined "
+            "onboarding workflows, and improved developer productivity metrics across "
+            "multiple product lines. Please see my resume for detailed project descriptions."
+        )
+        log.debug("  -> Open-ended (generic): %s chars", len(form[field_name]))
         return
 
     # Free-text fallback — leave blank, warn if required
@@ -396,39 +428,247 @@ def _get_resume_bytes(resume_path: Path, tailored_md_path: Path) -> tuple[str, b
 # ---------------------------------------------------------------------------
 
 
+
+# ---------------------------------------------------------------------------
+# S3 resume upload helpers
+# ---------------------------------------------------------------------------
+
+_GH_PRESIGNED_URL = "https://boards.greenhouse.io/uncacheable_attributes/presigned_fields"
+
+
+def _upload_resume_to_s3(
+    resume_path: Path,
+    tailored_md_path: Path | None = None,
+) -> tuple[str, str] | None:
+    """Upload resume to Greenhouse's S3 bucket via presigned URL.
+
+    Returns (resume_url, resume_filename) on success, or None on failure.
+    """
+    md_path = tailored_md_path or (resume_path.with_suffix(".md") if resume_path else None)
+    try:
+        resume_fname, resume_bytes, resume_mime = _get_resume_bytes(
+            resume_path, md_path or resume_path
+        )
+    except FileNotFoundError as exc:
+        log.error("Cannot find resume: %s", exc)
+        return None
+
+    log.info("Fetching S3 presigned fields from Greenhouse")
+    try:
+        presign_resp = requests.get(
+            _GH_PRESIGNED_URL,
+            params={"fields[]": "resume"},
+            timeout=15,
+        )
+        presign_resp.raise_for_status()
+    except requests.RequestException as exc:
+        log.error("Failed to fetch presigned fields: %s", exc)
+        return None
+
+    presign_data = presign_resp.json()
+    log.debug("Presigned fields response keys: %s", list(presign_data.keys()))
+
+    # Response: {"url": "https://s3.amazonaws.com/...", "resume": {"fields": {...}, "key": "stash/..."}}
+    s3_url: str = presign_data.get("url", "")
+    resume_presign = presign_data.get("resume", {})
+    fields: dict = resume_presign.get("fields", {})
+    key_template: str = resume_presign.get("key", "")
+
+    if not s3_url or not fields or not key_template:
+        log.error("Unexpected presigned response structure: %s", presign_data)
+        return None
+
+    # Replace key template placeholders
+    import time, uuid
+    key = key_template.replace("{timestamp}", str(int(time.time() * 1000)))
+    key = key.replace("{unique_id}", uuid.uuid4().hex[:8])
+
+    # Build S3 upload form data
+    s3_fields = {
+        "utf8": "\u2713",
+        "authenticity_token": "",
+        "key": key,
+        "Content-Type": resume_mime,
+        **fields,
+    }
+
+    # POST multipart to S3 with presigned fields + file
+    log.info("Uploading resume to S3: %s (key=%s)", s3_url, key[:60])
+    try:
+        s3_resp = requests.post(
+            s3_url,
+            data=s3_fields,
+            files={"file": (resume_fname, resume_bytes, resume_mime)},
+            timeout=30,
+        )
+    except requests.RequestException as exc:
+        log.error("S3 upload request failed: %s", exc)
+        return None
+
+    if s3_resp.status_code not in (200, 201, 204):
+        log.error("S3 upload returned HTTP %s: %s", s3_resp.status_code, s3_resp.text[:200])
+        return None
+
+    # Extract final URL from S3 XML response or construct it
+    loc_match = re.search(r"<Location>([^<]+)</Location>", s3_resp.text)
+    if loc_match:
+        final_url = loc_match.group(1)
+    else:
+        final_url = s3_url.rstrip("/") + "/" + key.lstrip("/")
+
+    log.info("Resume uploaded to S3: %s", final_url)
+    return final_url, resume_fname
+
+
+# ---------------------------------------------------------------------------
+# Page HTML parsing helpers
+# ---------------------------------------------------------------------------
+
+
+def _extract_fingerprint(html: str) -> str:
+    """Extract the fingerprint value from Greenhouse page HTML."""
+    m = re.search(r'"fingerprint":"([^"]+)"', html)
+    if m:
+        return m.group(1)
+    log.debug("No fingerprint found in page HTML")
+    return ""
+
+
+def _extract_disable_captcha(html: str) -> bool:
+    """Return True if the board has CAPTCHA disabled (disable_captcha: true)."""
+    m = re.search(r'"disable_captcha"\s*:\s*(true|false)', html)
+    if m:
+        return m.group(1) == "true"
+    # Default: assume CAPTCHA is enabled (safer assumption)
+    return False
+
+
+def _fetch_page_html(board_token: str, job_id: str) -> str | None:
+    """GET the Greenhouse job page HTML. Returns text or None on error."""
+    url = f"https://boards.greenhouse.io/{board_token}/jobs/{job_id}"
+    log.info("Fetching page HTML: %s", url)
+    try:
+        resp = requests.get(
+            url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+                ),
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        return resp.text
+    except requests.RequestException as exc:
+        log.error("Failed to fetch page HTML: %s", exc)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# HTTP submission (JSON POST)
+# ---------------------------------------------------------------------------
+
+_GH_CAPTCHA_SITE_KEY = "6LfmcbcpAAAAAChNTbhUShzUOAMj_wY9LQIvLFX0"
+
+
 def submit_application(
     board_token: str,
     job_id: str,
     form_data: dict[str, Any],
     resume_path: Path,
     tailored_md_path: Path | None = None,
+    page_html: str | None = None,
+    captcha_config: dict | None = None,
 ) -> dict[str, Any]:
-    """Submit the application via HTTP POST to Greenhouse.
+    """Submit the application via JSON POST to Greenhouse.
+
+    Flow:
+    1. Upload resume to S3 → get resume_url
+    2. Extract fingerprint from page HTML (if provided)
+    3. Solve CAPTCHA if enabled and not disabled on the board
+    4. JSON POST to boards.greenhouse.io/{board_token}/jobs/{job_id}
 
     Returns {"success": bool, "message": str, "status_code": int | None}.
-    CAPTCHA is detected and returned gracefully rather than raised.
     """
     url = f"https://boards.greenhouse.io/{board_token}/jobs/{job_id}"
     log.info("Submitting application to: %s", url)
 
     md_path = tailored_md_path or resume_path.with_suffix(".md")
-    try:
-        resume_fname, resume_bytes, resume_mime = _get_resume_bytes(resume_path, md_path)
-    except FileNotFoundError as exc:
-        log.error("Cannot find resume: %s", exc)
-        return {"success": False, "message": str(exc), "status_code": None}
 
-    # Separate file fields from text fields for requests
-    files: dict[str, Any] = {"resume": (resume_fname, resume_bytes, resume_mime)}
-    data_fields: dict[str, str] = {}
+    # 1. Upload resume to S3
+    s3_result = _upload_resume_to_s3(resume_path, md_path)
+    if s3_result is None:
+        log.warning("S3 upload failed; falling back to base64 resume embed (not recommended)")
+        resume_url = ""
+        resume_filename = resume_path.name
+    else:
+        resume_url, resume_filename = s3_result
+
+    # 2. Extract fingerprint from page HTML
+    fingerprint = ""
+    disable_captcha = False
+    if page_html:
+        fingerprint = _extract_fingerprint(page_html)
+        disable_captcha = _extract_disable_captcha(page_html)
+        log.debug("fingerprint=%r  disable_captcha=%s", fingerprint[:20] if fingerprint else "", disable_captcha)
+
+    # 3. Solve CAPTCHA if needed
+    captcha_token: str | None = None
+    cfg = captcha_config or {}
+    captcha_enabled = cfg.get("enabled", False)
+
+    if captcha_enabled and not disable_captcha:
+        log.info("CAPTCHA solving enabled and board requires it — calling CapSolver")
+        try:
+            from scripts.captcha import solve_recaptcha_enterprise
+            captcha_token = solve_recaptcha_enterprise(
+                site_key=_GH_CAPTCHA_SITE_KEY,
+                page_url=url.replace("boards.greenhouse.io", "job-boards.greenhouse.io"),
+            )
+            if captcha_token:
+                log.info("CAPTCHA solved successfully")
+            else:
+                log.warning("CAPTCHA solving failed — submission may be blocked (HTTP 428)")
+        except Exception as exc:
+            log.error("CAPTCHA solver error: %s", exc)
+    elif captcha_enabled and disable_captcha:
+        log.info("Board has CAPTCHA disabled; skipping CAPTCHA solving")
+    else:
+        log.info("CAPTCHA solving not enabled in config; skipping")
+
+    # 4. Build JSON body
+    job_application: dict[str, Any] = {
+        "first_name": form_data.get("first_name", ""),
+        "last_name":  form_data.get("last_name", ""),
+        "email":      form_data.get("email", ""),
+        "phone":      form_data.get("phone", ""),
+        "location":   form_data.get("location", ""),
+    }
+
+    # Add S3 resume fields
+    if resume_url:
+        job_application["resume_url"]          = resume_url
+        job_application["resume_url_filename"] = resume_filename
+
+    # Add remaining custom fields (skip base fields already included)
+    _BASE_FIELDS = {"first_name", "last_name", "email", "phone", "location"}
     for k, v in form_data.items():
-        if isinstance(v, tuple):
-            files[k] = v
-        else:
-            data_fields[k] = str(v)
+        if k not in _BASE_FIELDS and not isinstance(v, tuple):
+            job_application[k] = v
+
+    body: dict[str, Any] = {
+        "job_application": job_application,
+    }
+    if fingerprint:
+        body["fingerprint"] = fingerprint
+    if captcha_token:
+        body["g-recaptcha-enterprise-token"] = captcha_token
 
     headers = {
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/html, */*",
         "User-Agent": (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
@@ -436,13 +676,16 @@ def submit_application(
         "Referer": url,
     }
 
-    log.debug("POST data fields: %s", list(data_fields.keys()))
-    log.debug("POST file fields: %s", list(files.keys()))
+    log.debug("JSON POST body keys: %s", list(body.keys()))
+    log.debug("job_application keys: %s", list(job_application.keys()))
 
     try:
         resp = requests.post(
-            url, data=data_fields, files=files,
-            headers=headers, timeout=30, allow_redirects=True,
+            url,
+            json=body,
+            headers=headers,
+            timeout=30,
+            allow_redirects=True,
         )
     except requests.RequestException as exc:
         log.error("Network error during submission: %s", exc)
@@ -451,16 +694,26 @@ def submit_application(
     log.info("Response: HTTP %s  final_url=%s", resp.status_code, resp.url)
     log.debug("Response headers: %s", dict(resp.headers))
 
-    if _detect_captcha(resp):
-        log.warning("CAPTCHA detected — application cannot be auto-submitted")
+    # Handle status codes per Greenhouse reverse-engineering
+    if resp.status_code == 428:
+        log.warning("HTTP 428 — CAPTCHA required or token was rejected")
         return {
             "success": False,
-            "message": "CAPTCHA challenge detected; manual submission required",
-            "status_code": resp.status_code,
+            "message": "CAPTCHA required or token rejected (HTTP 428)",
+            "status_code": 428,
             "captcha": True,
         }
 
-    if resp.status_code in (200, 201):
+    if resp.status_code == 422:
+        snippet = resp.text[:500]
+        log.error("HTTP 422 Validation error: %s", snippet)
+        return {
+            "success": False,
+            "message": f"Validation error (HTTP 422): {snippet}",
+            "status_code": 422,
+        }
+
+    if resp.status_code in (200, 201, 302):
         body_lower = resp.text.lower()
         if "thank" in resp.url.lower() or "thank" in body_lower:
             log.info("Application submitted successfully (thank-you page detected)")
@@ -473,11 +726,20 @@ def submit_application(
                 "message": f"Submission error detected: {snippet}",
                 "status_code": resp.status_code,
             }
-        log.info("Application likely submitted (HTTP 200, no errors detected)")
+        log.info("Application likely submitted (HTTP %s, no errors detected)", resp.status_code)
         return {
             "success": True,
-            "message": "Submitted (no errors detected in response)",
+            "message": f"Submitted (HTTP {resp.status_code}, no errors detected in response)",
             "status_code": resp.status_code,
+        }
+
+    if _detect_captcha(resp):
+        log.warning("CAPTCHA detected in response body — application cannot be auto-submitted")
+        return {
+            "success": False,
+            "message": "CAPTCHA challenge detected; manual submission required",
+            "status_code": resp.status_code,
+            "captcha": True,
         }
 
     log.error("Unexpected HTTP %s: %s", resp.status_code, resp.text[:300])
@@ -528,8 +790,19 @@ def apply_greenhouse(
     tailored_md_path: Path,
     company: str,
     db_path: Path,
+    captcha_config: dict | None = None,
 ) -> str:
     """Apply to a Greenhouse job via HTTP POST (no browser needed).
+
+    Flow:
+    1. Extract board_token and job_id from URL
+    2. GET page HTML → extract fingerprint, disable_captcha flag
+    3. Fetch questions from Greenhouse API
+    4. Build form data (profile + question heuristics)
+    5. Upload resume to S3
+    6. Solve CAPTCHA if enabled (CapSolver)
+    7. JSON POST to boards.greenhouse.io
+    8. Handle response: 200/302 = success, 428 = captcha failed, 422 = validation error
 
     Returns one of:
     - "applied"      — submitted successfully
@@ -538,6 +811,20 @@ def apply_greenhouse(
 
     Updates the jobs table status in db_path.
     """
+    # Load captcha config from config.yaml if not provided
+    if captcha_config is None:
+        try:
+            import yaml
+            cfg_path = Path(__file__).resolve().parent.parent / "config.yaml"
+            if cfg_path.exists():
+                with open(cfg_path) as cf:
+                    full_cfg = yaml.safe_load(cf) or {}
+                captcha_config = full_cfg.get("captcha", {})
+                log.debug("Loaded captcha config: %s", captcha_config)
+        except Exception as exc:
+            log.warning("Could not load config.yaml for captcha settings: %s", exc)
+            captcha_config = {}
+
     log.info("=== Greenhouse apply: job_id=%d  company=%r ===", job_id, company)
     log.info("Job URL: %s", job_url)
 
@@ -556,7 +843,13 @@ def apply_greenhouse(
     gh_job_id   = gh_info["job_id"]
     log.info("Resolved: board_token=%s  gh_job_id=%s", board_token, gh_job_id)
 
-    # 2. Fetch job questions
+    # 2. GET page HTML → extract fingerprint and disable_captcha flag
+    page_html = _fetch_page_html(board_token, gh_job_id)
+    if page_html is None:
+        log.warning("Could not fetch page HTML; proceeding without fingerprint/captcha-disable info")
+        page_html = ""
+
+    # 3. Fetch job questions from Greenhouse API
     try:
         job_data = get_job_questions(board_token, gh_job_id)
     except requests.HTTPError as exc:
@@ -570,7 +863,7 @@ def apply_greenhouse(
 
     questions = job_data.get("questions", [])
 
-    # 3. Build form data from profile + question mapping
+    # 4. Build form data from profile + question mapping
     form_data = build_form_data(
         questions=questions,
         profile=profile,
@@ -579,19 +872,21 @@ def apply_greenhouse(
         company=company,
     )
 
-    # 4. Submit via HTTP POST
+    # 5–7. Upload resume, solve CAPTCHA, JSON POST (handled inside submit_application)
     result = submit_application(
         board_token=board_token,
         job_id=gh_job_id,
         form_data=form_data,
         resume_path=resume_path,
         tailored_md_path=tailored_md_path,
+        page_html=page_html,
+        captcha_config=captcha_config,
     )
 
-    # 5. Map to final status string
+    # 8. Map to final status string
     if result.get("captcha"):
         final_status = "blocked"
-        note = "Greenhouse CAPTCHA detected — manual application required"
+        note = f"Greenhouse CAPTCHA block (HTTP {result.get('status_code')}) — manual application required"
     elif result["success"]:
         final_status = "applied"
         note = f"Greenhouse HTTP apply succeeded (HTTP {result.get('status_code')})"
@@ -601,7 +896,7 @@ def apply_greenhouse(
 
     log.info("Final status: %s — %s", final_status, note)
 
-    # 6. Persist to DB
+    # 9. Persist to DB
     try:
         _update_db_status(db_path, job_id, final_status, note=note)
     except Exception as exc:

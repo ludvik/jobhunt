@@ -194,3 +194,33 @@ def _deep_copy(obj):
     if isinstance(obj, list):
         return [_deep_copy(v) for v in obj]
     return obj
+
+
+def get_capsolver_api_key() -> str | None:
+    """Return the CapSolver API key from env var or macOS Keychain.
+
+    Priority:
+    1. CAPSOLVER_API_KEY environment variable
+    2. macOS Keychain (service="capsolver", account="apikey")
+    3. Returns None if neither is available.
+    """
+    import os
+    import subprocess
+
+    key = os.environ.get("CAPSOLVER_API_KEY")
+    if key:
+        return key.strip()
+
+    try:
+        result = subprocess.run(
+            ["security", "find-generic-password", "-s", "capsolver", "-a", "apikey", "-w"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    return None

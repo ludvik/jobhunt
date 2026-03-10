@@ -14,6 +14,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from scripts.pipeline import (
     _deep_merge,
+    _force_apply_failed,
     classify_new_jobs,
     get_eligible_jobs,
     get_job,
@@ -397,3 +398,446 @@ Senior AI Engineer with 10+ years...
 
         assert direction == "ic"  # default
         assert resume_md == response_text.strip()
+
+
+# ── CAPTCHA / CapSolver ───────────────────────────────────────────────────────
+
+class TestCaptchaConfigReading:
+    """test_captcha_config_reading — verify get_capsolver_api_key reads from env."""
+
+    def test_reads_env_var(self, monkeypatch):
+        import os
+        monkeypatch.setenv("CAPSOLVER_API_KEY", "test-key-from-env")
+        from scripts.config import get_capsolver_api_key
+        key = get_capsolver_api_key()
+        assert key == "test-key-from-env"
+
+    def test_returns_none_when_missing(self, monkeypatch):
+        """When env var is absent and Keychain returns non-zero, returns None."""
+        import subprocess
+        monkeypatch.delenv("CAPSOLVER_API_KEY", raising=False)
+
+        # Patch subprocess.run to simulate no Keychain entry
+        def fake_run(*args, **kwargs):
+            result = subprocess.CompletedProcess(args, returncode=1, stdout="", stderr="")
+            return result
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+        from scripts import config as cfg_module
+        import importlib
+        importlib.reload(cfg_module)
+        key = cfg_module.get_capsolver_api_key()
+        assert key is None
+
+    def test_env_var_takes_priority_over_keychain(self, monkeypatch):
+        """Env var should be returned without touching Keychain."""
+        monkeypatch.setenv("CAPSOLVER_API_KEY", "env-priority-key")
+        call_count = {"n": 0}
+        orig_run = __import__("subprocess").run
+
+        def tracking_run(*args, **kwargs):
+            call_count["n"] += 1
+            return orig_run(*args, **kwargs)
+
+        monkeypatch.setattr("subprocess.run", tracking_run)
+        from scripts.config import get_capsolver_api_key
+        key = get_capsolver_api_key()
+        assert key == "env-priority-key"
+        assert call_count["n"] == 0, "Keychain should not be queried when env var is set"
+
+
+class TestSolveRecaptchaMock:
+    """test_solve_recaptcha_mock — mock CapSolver API calls end-to-end."""
+
+    def _make_response(self, status_code: int, json_data: dict):
+        """Create a minimal mock requests.Response."""
+        import requests
+
+        resp = requests.Response()
+        resp.status_code = status_code
+        resp._content = __import__("json").dumps(json_data).encode()
+        return resp
+
+    def test_successful_solve(self, monkeypatch):
+        """Full happy path: createTask → processing → ready."""
+        calls = []
+
+        def mock_post(url, json=None, **kwargs):
+            calls.append(url)
+            if "createTask" in url:
+                return self._make_response(200, {"errorId": 0, "taskId": "task-123"})
+            if "getTaskResult" in url:
+                if len(calls) < 3:
+                    return self._make_response(200, {"errorId": 0, "status": "processing"})
+                return self._make_response(
+                    200,
+                    {"errorId": 0, "status": "ready", "solution": {"gRecaptchaResponse": "TOKEN-XYZ"}},
+                )
+            raise AssertionError(f"Unexpected URL: {url}")
+
+        monkeypatch.setattr("requests.post", mock_post)
+        monkeypatch.setattr("time.sleep", lambda s: None)  # skip real waits
+
+        from scripts.captcha import solve_recaptcha_enterprise
+        token = solve_recaptcha_enterprise(
+            site_key="6Ltest",
+            page_url="https://boards.greenhouse.io/acme/jobs/123",
+            api_key="fake-api-key",
+        )
+        assert token == "TOKEN-XYZ"
+
+    def test_create_task_api_error(self, monkeypatch):
+        """createTask returns errorId != 0 → returns None."""
+
+        def mock_post(url, json=None, **kwargs):
+            return self._make_response(
+                200, {"errorId": 1, "errorCode": "ERROR_KEY_DENIED_ACCESS", "errorDescription": "bad key"}
+            )
+
+        monkeypatch.setattr("requests.post", mock_post)
+        monkeypatch.setattr("time.sleep", lambda s: None)
+
+        from scripts.captcha import solve_recaptcha_enterprise
+        token = solve_recaptcha_enterprise("6Ltest", "https://example.com", api_key="bad-key")
+        assert token is None
+
+    def test_no_api_key_returns_none(self, monkeypatch):
+        """When no API key available, returns None without any HTTP calls."""
+        import subprocess
+
+        monkeypatch.delenv("CAPSOLVER_API_KEY", raising=False)
+
+        def fake_run(*args, **kwargs):
+            return subprocess.CompletedProcess(args, returncode=1, stdout="", stderr="")
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+        post_called = {"called": False}
+
+        def mock_post(*args, **kwargs):
+            post_called["called"] = True
+            raise AssertionError("Should not call API without key")
+
+        monkeypatch.setattr("requests.post", mock_post)
+        monkeypatch.setattr("time.sleep", lambda s: None)
+
+        from scripts import captcha as cap_module
+        import importlib
+        importlib.reload(cap_module)
+
+        token = cap_module.solve_recaptcha_enterprise("6Ltest", "https://example.com")
+        assert token is None
+        assert not post_called["called"]
+
+    def test_timeout_returns_none(self, monkeypatch):
+        """If all polls return 'processing' until timeout, returns None."""
+        import time as real_time
+
+        def mock_post(url, json=None, **kwargs):
+            if "createTask" in url:
+                return self._make_response(200, {"errorId": 0, "taskId": "task-timeout"})
+            return self._make_response(200, {"errorId": 0, "status": "processing"})
+
+        monkeypatch.setattr("requests.post", mock_post)
+        monkeypatch.setattr("time.sleep", lambda s: None)
+
+        # Make monotonic advance past timeout immediately after a few polls
+        call_count = {"n": 0}
+        start = real_time.monotonic()
+
+        def fast_monotonic():
+            call_count["n"] += 1
+            # After 5 calls, simulate 61+ seconds elapsed
+            if call_count["n"] > 5:
+                return start + 65
+            return start + call_count["n"]
+
+        monkeypatch.setattr("time.monotonic", fast_monotonic)
+
+        from scripts import captcha as cap_module
+        import importlib
+        importlib.reload(cap_module)
+
+        token = cap_module.solve_recaptcha_enterprise("6Ltest", "https://example.com", api_key="key")
+        assert token is None
+
+
+# ── Force-writeback guard ─────────────────────────────────────────────────────
+
+class TestForceApplyFailed:
+    """Tests for _force_apply_failed — the pipeline-side status writeback guard."""
+
+    @pytest.fixture()
+    def guard_db(self, tmp_path: Path) -> Path:
+        db_path = tmp_path / "guard.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("""
+                CREATE TABLE jobs (
+                    id INTEGER PRIMARY KEY,
+                    title TEXT,
+                    company TEXT,
+                    status TEXT,
+                    status_updated_at TEXT
+                )
+            """)
+            conn.executemany(
+                "INSERT INTO jobs (id, title, company, status) VALUES (?, ?, ?, ?)",
+                [
+                    (10, "Engineer", "Acme", "tailored"),
+                    (11, "Manager", "Beta", "applied"),
+                    (12, "Scientist", "Gamma", "blocked"),
+                    (13, "Director", "Delta", "apply_failed"),
+                ],
+            )
+        return db_path
+
+    def test_writes_apply_failed_when_tailored(self, guard_db: Path):
+        """Job still in 'tailored' state → force apply_failed."""
+        import logging
+        log = logging.getLogger("test")
+        _force_apply_failed(guard_db, 10, "apply_agent_no_status_update", log)
+        assert get_job_status(guard_db, 10) == "apply_failed"
+
+    def test_does_not_overwrite_applied(self, guard_db: Path):
+        """Already 'applied' → no change."""
+        import logging
+        log = logging.getLogger("test")
+        _force_apply_failed(guard_db, 11, "apply_agent_no_status_update", log)
+        assert get_job_status(guard_db, 11) == "applied"
+
+    def test_does_not_overwrite_blocked(self, guard_db: Path):
+        """Already 'blocked' → no change."""
+        import logging
+        log = logging.getLogger("test")
+        _force_apply_failed(guard_db, 12, "apply_agent_no_status_update", log)
+        assert get_job_status(guard_db, 12) == "blocked"
+
+    def test_does_not_overwrite_apply_failed(self, guard_db: Path):
+        """Already 'apply_failed' → no change (idempotent)."""
+        import logging
+        log = logging.getLogger("test")
+        _force_apply_failed(guard_db, 13, "apply_agent_no_status_update", log)
+        assert get_job_status(guard_db, 13) == "apply_failed"
+
+    def test_tolerates_missing_job(self, guard_db: Path):
+        """Non-existent job ID → no crash, no write."""
+        import logging
+        log = logging.getLogger("test")
+        _force_apply_failed(guard_db, 999, "apply_agent_no_status_update", log)
+        # Just verify no exception raised
+
+    def test_applies_with_note_in_real_db(self, guard_db: Path):
+        """Verify status_updated_at is set when writing apply_failed."""
+        import logging
+        log = logging.getLogger("test")
+        _force_apply_failed(guard_db, 10, "apply_agent_no_status_update", log)
+        with sqlite3.connect(guard_db) as conn:
+            row = conn.execute(
+                "SELECT status, status_updated_at FROM jobs WHERE id=10"
+            ).fetchone()
+        assert row[0] == "apply_failed"
+        assert row[1] is not None  # timestamp was written
+
+
+# ── URL resolution (resolve_apply_url) ───────────────────────────────────────
+
+class TestResolveApplyUrl:
+    """Tests for resolve_apply_url — mocked extractor, no real browser."""
+
+    def _make_log(self):
+        import logging
+        return logging.getLogger("test_resolve")
+
+    def _import(self):
+        from scripts.pipeline import resolve_apply_url
+        return resolve_apply_url
+
+    # -- LinkedIn path --------------------------------------------------------
+
+    def test_linkedin_external_url_found(self):
+        """LinkedIn URL → extractor returns external URL → use it."""
+        resolve_apply_url = self._import()
+        mock_extractor = lambda url, timeout=15: "https://boards.greenhouse.io/acme/jobs/123"
+
+        final, note = resolve_apply_url(
+            "https://www.linkedin.com/jobs/view/123456/",
+            job_id=1,
+            company="Acme",
+            log=self._make_log(),
+            _linkedin_extractor=mock_extractor,
+        )
+        assert final == "https://boards.greenhouse.io/acme/jobs/123"
+        assert "linkedin_external" in note
+        assert "ats_direct:greenhouse" in note
+
+    def test_linkedin_no_external_url(self):
+        """LinkedIn URL → extractor returns None → keep original LinkedIn URL."""
+        resolve_apply_url = self._import()
+        mock_extractor = lambda url, timeout=15: None
+
+        final, note = resolve_apply_url(
+            "https://www.linkedin.com/jobs/view/789/",
+            job_id=2,
+            company="Beta",
+            log=self._make_log(),
+            _linkedin_extractor=mock_extractor,
+        )
+        assert final == "https://www.linkedin.com/jobs/view/789/"
+        assert "linkedin_no_external" in note
+
+    def test_linkedin_extractor_exception_falls_through(self):
+        """Extractor throws → note 'linkedin_extract_failed', original URL returned."""
+        resolve_apply_url = self._import()
+
+        def bad_extractor(url, timeout=15):
+            raise RuntimeError("browser not running")
+
+        final, note = resolve_apply_url(
+            "https://www.linkedin.com/jobs/view/999/",
+            job_id=3,
+            company="Gamma",
+            log=self._make_log(),
+            _linkedin_extractor=bad_extractor,
+        )
+        assert final == "https://www.linkedin.com/jobs/view/999/"
+        assert "linkedin_extract_failed" in note
+
+    # -- Non-LinkedIn direct ATS URL -----------------------------------------
+
+    def test_direct_greenhouse_url(self):
+        """Direct Greenhouse URL → classified immediately, no browser call."""
+        resolve_apply_url = self._import()
+        called = {"n": 0}
+
+        def should_not_be_called(url, timeout=15):
+            called["n"] += 1
+            return None
+
+        final, note = resolve_apply_url(
+            "https://boards.greenhouse.io/stripe/jobs/4567",
+            job_id=4,
+            company="Stripe",
+            log=self._make_log(),
+            _linkedin_extractor=should_not_be_called,
+        )
+        assert final == "https://boards.greenhouse.io/stripe/jobs/4567"
+        assert "ats_direct:greenhouse" in note
+        assert called["n"] == 0  # extractor never called for non-LinkedIn
+
+    def test_direct_lever_url(self):
+        resolve_apply_url = self._import()
+        final, note = resolve_apply_url(
+            "https://jobs.lever.co/openai/abc-123",
+            job_id=5,
+            company="OpenAI",
+            log=self._make_log(),
+            _linkedin_extractor=lambda u, timeout=15: None,
+        )
+        assert "ats_direct:lever" in note
+        assert final == "https://jobs.lever.co/openai/abc-123"
+
+    # -- Company page + ATS cache --------------------------------------------
+
+    def test_company_page_with_iframe_cache(self, tmp_path, monkeypatch):
+        """Non-ATS company page + cache hit with iframe_src → use iframe_src."""
+        from scripts import ats_resolver
+        cache = {
+            "careers.sofi.com": {
+                "platform": "greenhouse",
+                "iframe_src": "https://job-boards.greenhouse.io/sofi/jobs/7890",
+                "updated_at": "2026-03-01T00:00:00Z",
+            }
+        }
+        monkeypatch.setattr(ats_resolver, "ATS_CACHE_PATH", tmp_path / "cache.json")
+        import json
+        (tmp_path / "cache.json").write_text(json.dumps(cache))
+
+        resolve_apply_url = self._import()
+        final, note = resolve_apply_url(
+            "https://careers.sofi.com/listing/se-position-7890",
+            job_id=6,
+            company="SoFi",
+            log=self._make_log(),
+            _linkedin_extractor=lambda u, timeout=15: None,
+        )
+        assert final == "https://job-boards.greenhouse.io/sofi/jobs/7890"
+        assert "cache_iframe:greenhouse" in note
+
+    def test_company_page_cache_hit_no_iframe(self, tmp_path, monkeypatch):
+        """Cache hit without iframe_src → keep company URL, note cache_hint."""
+        from scripts import ats_resolver
+        cache = {
+            "careers.example.com": {
+                "platform": "workday",
+                "iframe_src": "",
+                "updated_at": "2026-03-01T00:00:00Z",
+            }
+        }
+        monkeypatch.setattr(ats_resolver, "ATS_CACHE_PATH", tmp_path / "cache.json")
+        import json
+        (tmp_path / "cache.json").write_text(json.dumps(cache))
+
+        resolve_apply_url = self._import()
+        final, note = resolve_apply_url(
+            "https://careers.example.com/job/123",
+            job_id=7,
+            company="Example",
+            log=self._make_log(),
+            _linkedin_extractor=lambda u, timeout=15: None,
+        )
+        assert final == "https://careers.example.com/job/123"
+        assert "cache_hint:workday" in note
+
+    def test_company_page_no_cache(self, tmp_path, monkeypatch):
+        """Non-ATS, no cache → keep URL, note company_page_no_cache."""
+        from scripts import ats_resolver
+        monkeypatch.setattr(ats_resolver, "ATS_CACHE_PATH", tmp_path / "cache.json")
+
+        resolve_apply_url = self._import()
+        final, note = resolve_apply_url(
+            "https://careers.widgetcorp.com/listing/sr-engineer-999",
+            job_id=8,
+            company="WidgetCorp",
+            log=self._make_log(),
+            _linkedin_extractor=lambda u, timeout=15: None,
+        )
+        assert final == "https://careers.widgetcorp.com/listing/sr-engineer-999"
+        assert "company_page_no_cache" in note
+
+    # -- Edge cases ----------------------------------------------------------
+
+    def test_empty_url(self):
+        resolve_apply_url = self._import()
+        final, note = resolve_apply_url(
+            "",
+            job_id=0,
+            company="Nobody",
+            log=self._make_log(),
+        )
+        assert final == ""
+        assert note == "no_url"
+
+    def test_linkedin_external_then_cache_iframe(self, tmp_path, monkeypatch):
+        """LinkedIn → external company URL → cache hit with iframe → use iframe."""
+        from scripts import ats_resolver
+        cache = {
+            "careers.acme.com": {
+                "platform": "ashby",
+                "iframe_src": "https://jobs.ashbyhq.com/acme/job-id",
+                "updated_at": "2026-03-01T00:00:00Z",
+            }
+        }
+        monkeypatch.setattr(ats_resolver, "ATS_CACHE_PATH", tmp_path / "cache.json")
+        import json
+        (tmp_path / "cache.json").write_text(json.dumps(cache))
+
+        resolve_apply_url = self._import()
+        final, note = resolve_apply_url(
+            "https://www.linkedin.com/jobs/view/111/",
+            job_id=9,
+            company="Acme",
+            log=self._make_log(),
+            _linkedin_extractor=lambda u, timeout=15: "https://careers.acme.com/job/xyz",
+        )
+        assert final == "https://jobs.ashbyhq.com/acme/job-id"
+        assert "linkedin_external" in note
+        assert "cache_iframe:ashby" in note

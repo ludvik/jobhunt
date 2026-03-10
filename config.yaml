@@ -17,24 +17,16 @@ fetch:
     url: https://www.linkedin.com/jobs/collections/gen-ai/
   - name: ai-and-ml
     url: https://www.linkedin.com/jobs/collections/ai-and-ml/
-  - name: sustainability
-    url: https://www.linkedin.com/jobs/collections/sustainability/
   - name: remote-jobs
     url: https://www.linkedin.com/jobs/collections/remote-jobs/
-  - name: manufacturing
-    url: https://www.linkedin.com/jobs/collections/manufacturing/
-  - name: small-business
-    url: https://www.linkedin.com/jobs/collections/small-business/
-  - name: climate-and-cleantech
-    url: https://www.linkedin.com/jobs/collections/climate-and-cleantech/
-  - name: mobility-tech
-    url: https://www.linkedin.com/jobs/collections/mobility-tech/
   - name: yc-funded
     url: https://www.linkedin.com/jobs/collections/yc-funded/
-  - name: real-estate
-    url: https://www.linkedin.com/jobs/collections/real-estate/
-  - name: top-retail
-    url: https://www.linkedin.com/jobs/collections/top-retail/
+  - name: mgmt-engineering-manager
+    url: https://www.linkedin.com/jobs/search/?keywords=Engineering%20Manager&f_E=4%2C5%2C6&geoId=103644278&sortBy=DD
+  - name: mgmt-director-engineering
+    url: https://www.linkedin.com/jobs/search/?keywords=Director%20of%20Engineering&geoId=103644278&sortBy=DD
+  - name: mgmt-vp-head-engineering
+    url: https://www.linkedin.com/jobs/search/?keywords=VP%20Engineering%20Head%20of%20Engineering&geoId=103644278&sortBy=DD
 classify:
   enabled: true
   min_experience_years: 5
@@ -63,6 +55,11 @@ classify:
   - (?i)\bsolidworks\b
   - "(?i)\bdata engineer\b"
   - "(?i)\bdata engineering\b"
+  - (?i)\bmechanical.*(manager|director)\b
+  - (?i)\bcivil.*(manager|director)\b
+  - (?i)\belectrical.*(manager|director)\b
+  - (?i)\bconstruction.*(manager|director)\b
+  - (?i)\bmanufacturing.*(manager|director)\b
   blocked_platforms:
   - lever.co
   - ashbyhq.com
@@ -70,3 +67,7 @@ classify:
 logging:
   level: INFO
   log_file: null
+captcha:
+  provider: capsolver  # only provider for now
+  # API key is read from: CAPSOLVER_API_KEY env var, or macOS Keychain (service: "capsolver", account: "apikey")
+  enabled: true

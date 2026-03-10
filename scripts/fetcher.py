@@ -329,7 +329,7 @@ def run_fetch(
         try:
             for sel in [_JOB_CARD_SELECTOR, *_JOB_CARD_FALLBACKS]:
                 try:
-                    page.wait_for_selector(sel, timeout=8000)
+                    page.wait_for_selector(sel, timeout=15000)
                     break
                 except Exception:
                     continue
