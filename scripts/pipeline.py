@@ -184,6 +184,61 @@ def run_agent(session_id: str, prompt: str, timeout: int, thinking: str,
         return {"error": str(exc)}
 
 
+# ── Browser Use apply executor ────────────────────────────────────────────────
+# Platforms routed to bu_apply.py instead of openclaw agent
+BU_PLATFORMS = {"greenhouse", "workday", "phenom", "ebay-phenom", "ashby", "lever", "icims"}
+
+def run_bu_apply(job: dict, resolved_url: str, resume_path: str, timeout: int,
+                 dry_run: bool, log: logging.Logger,
+                 data_dir: Path = DATA_DIR, skill_dir: Path = SKILL_DIR) -> dict:
+    """Invoke bu_apply.py via subprocess. Returns dict with optional 'error' key."""
+    cmd = [
+        "uv", "run", "python", "scripts/bu_apply.py",
+        "--job-id", str(job["id"]),
+        "--url", resolved_url,
+        "--company", job.get("company") or "",
+        "--title", job.get("title") or "",
+        "--resume-path", resume_path,
+        "--data-dir", str(data_dir),
+        "--skill-dir", str(skill_dir),
+        "--timeout", str(timeout),
+    ]
+    log.info("PIPELINE: [BU] Invoking bu_apply.py for job %d (%s @ %s) timeout=%ds",
+             job["id"], job.get("title"), job.get("company"), timeout)
+
+    if dry_run:
+        log.info("PIPELINE: [DRY RUN] Would run: %s", " ".join(cmd))
+        return {"dry_run": True}
+
+    try:
+        import tempfile as _tf
+        stdout_file = Path(_tf.mkdtemp()) / f"bu-{job['id']}-stdout.log"
+        stderr_file = Path(_tf.mkdtemp()) / f"bu-{job['id']}-stderr.log"
+        with open(stdout_file, "w") as fout, open(stderr_file, "w") as ferr:
+            proc = subprocess.Popen(cmd, stdout=fout, stderr=ferr, text=True,
+                                    cwd=str(skill_dir))
+            try:
+                proc.wait(timeout=timeout + 60)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+                log.error("PIPELINE: [BU] Job %d: bu_apply.py timed out after %ds",
+                          job["id"], timeout)
+                return {"error": "subprocess_timeout"}
+
+        if proc.returncode not in (0, 1):
+            err_text = stderr_file.read_text()[:500] if stderr_file.exists() else ""
+            log.error("PIPELINE: [BU] Job %d: bu_apply.py exited %d: %s",
+                      job["id"], proc.returncode, err_text)
+            return {"error": f"exit_{proc.returncode}"}
+
+        # bu_apply.py writes DB status itself; returncode 0 = ran (check DB)
+        return {}
+    except Exception as exc:
+        log.error("PIPELINE: [BU] Job %d: unexpected error: %s", job["id"], exc)
+        return {"error": str(exc)}
+
+
 # ── DB helpers ────────────────────────────────────────────────────────────────
 def get_eligible_jobs(db_path: Path, limit: int) -> list[dict]:
     """Return jobs with status='new', up to limit."""
@@ -946,27 +1001,45 @@ def main() -> None:
         model = apply_cfg.get("model", None)
         session_id = f"jobhunt-apply-{jid}"
 
-        agent_name = apply_cfg.get("agent", "jobhunt-apply")
-        agent_result = run_agent(session_id, prompt, timeout, thinking, args.dry_run, log, model=model, agent=agent_name)
+        # ── Route: Browser Use vs openclaw agent ──────────────────────────────
+        use_bu = detected_platform in BU_PLATFORMS or apply_cfg.get("force_browser_use", False)
+        if use_bu:
+            log.info("PIPELINE: Job %d: Routing to Browser Use (platform=%s)", jid, detected_platform)
+            agent_result = run_bu_apply(
+                job=job,
+                resolved_url=resolved_job_url,
+                resume_path=final_resume,
+                timeout=timeout,
+                dry_run=args.dry_run,
+                log=log,
+                data_dir=DATA_DIR,
+                skill_dir=SKILL_DIR,
+            )
+        else:
+            agent_name = apply_cfg.get("agent", "jobhunt-apply")
+            agent_result = run_agent(session_id, prompt, timeout, thinking, args.dry_run, log, model=model, agent=agent_name)
 
         if "error" in agent_result:
-            log.error("PIPELINE: Job %d: Apply agent error — %s", jid, agent_result["error"])
+            log.error("PIPELINE: Job %d: Apply error — %s", jid, agent_result["error"])
             # Force-writeback: agent exited with error and may not have updated status
             _force_apply_failed(db_path, jid, "apply_agent_error", log)
             results["apply_failed"] += 1
             continue
 
-        # Poll DB for final status (max 60s)
-        log.info("PIPELINE: Job %d: Polling DB for final status (up to 60s)...", jid)
+        # Poll DB for final status — wait proportional to apply_timeout (not fixed 60s)
+        poll_limit = min(120, max(60, timeout // 6))
+        poll_iters = poll_limit // 2
+        log.info("PIPELINE: Job %d: Polling DB for final status (up to %ds)...", jid, poll_limit)
         final_status: str | None = None
-        for _ in range(30):
+        for _ in range(poll_iters):
             time.sleep(2)
             final_status = get_job_status(db_path, jid)
             if final_status in ("applied", "blocked", "apply_failed"):
                 log.info("PIPELINE: Job %d: DB status confirmed = %s", jid, final_status)
                 break
         else:
-            log.warning("PIPELINE: Job %d: DB polling timed out (60s). Status = %s", jid, final_status)
+            log.warning("PIPELINE: Job %d: DB polling timed out (%ds). Status = %s",
+                        jid, poll_limit, final_status)
 
         # Guard: if agent exited without writing a terminal status, force apply_failed
         if final_status not in ("applied", "blocked", "apply_failed"):
@@ -982,13 +1055,13 @@ def main() -> None:
         # Clean up browser tabs after each job
         try:
             import urllib.request, json as _json
-            tabs_raw = urllib.request.urlopen("http://127.0.0.1:18800/json/list", timeout=3).read()
+            tabs_raw = urllib.request.urlopen("http://127.0.0.1:18801/json/list", timeout=3).read()
             tabs = _json.loads(tabs_raw)
             closed = 0
             for t in tabs:
                 if t.get("type") == "page":
                     try:
-                        urllib.request.urlopen(f"http://127.0.0.1:18800/json/close/{t['id']}", timeout=2)
+                        urllib.request.urlopen(f"http://127.0.0.1:18801/json/close/{t['id']}", timeout=2)
                         closed += 1
                     except Exception:
                         pass
