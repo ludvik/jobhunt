@@ -52,10 +52,12 @@ def get_db(data_dir: Path) -> Path:
 def write_job_status(db_path: Path, job_id: int, status: str, note: str = "") -> None:
     with sqlite3.connect(db_path) as conn:
         conn.execute(
-            "UPDATE jobs SET status=?, status_updated_at=datetime('now'), notes=? WHERE id=?",
-            (status, note, job_id),
+            "UPDATE jobs SET status=?, status_updated_at=datetime('now') WHERE id=?",
+            (status, job_id),
         )
         conn.commit()
+    if note:
+        log.info("Status note: %s", note)
 
 
 def write_apply_log(data_dir: Path, job_id: int, company: str, title: str,
@@ -294,10 +296,23 @@ async def run_apply(args: argparse.Namespace) -> int:
     except Exception as e:
         log.warning("Could not clean up tabs: %s", e)
 
-    import os
+    import os, subprocess as _sp
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        try:
+            api_key = _sp.check_output(
+                ["security", "find-generic-password", "-l", "anthropic", "-w"],
+                stderr=_sp.DEVNULL, text=True,
+            ).strip()
+        except Exception:
+            pass
+    if not api_key:
+        log.error("ANTHROPIC_API_KEY not found in env or keychain")
+        return 1
+
     llm = ChatAnthropic(
         model="claude-sonnet-4-6",
-        api_key=os.environ.get("ANTHROPIC_API_KEY"),
+        api_key=api_key,
         timeout=120,
         max_tokens=8192,
     )
