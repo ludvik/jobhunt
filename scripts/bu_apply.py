@@ -232,9 +232,9 @@ async def run_apply(args: argparse.Namespace) -> int:
     try:
         from browser_use.agent.service import Agent
         from browser_use.browser.session import BrowserSession
-        from langchain_anthropic import ChatAnthropic
+        from browser_use.llm.anthropic.chat import ChatAnthropic
     except ImportError as e:
-        log.error("Missing dependency: %s — run `uv add browser-use langchain-anthropic`", e)
+        log.error("Missing dependency: %s — run `uv add browser-use`", e)
         return 1
 
     data_dir = Path(args.data_dir)
@@ -294,8 +294,10 @@ async def run_apply(args: argparse.Namespace) -> int:
     except Exception as e:
         log.warning("Could not clean up tabs: %s", e)
 
+    import os
     llm = ChatAnthropic(
         model="claude-sonnet-4-6",
+        api_key=os.environ.get("ANTHROPIC_API_KEY"),
         timeout=120,
         max_tokens=8192,
     )
