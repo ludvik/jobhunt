@@ -9,7 +9,6 @@ dependencies = [
     "playwright>=1.40",
     "rich>=13.0",
     "pyyaml>=6.0",
-    "requests>=2.31",
     "markdown>=3.10.2",
 ]
 

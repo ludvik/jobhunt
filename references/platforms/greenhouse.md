@@ -4,7 +4,7 @@
 - Direct URL: `boards.greenhouse.io/<company>/jobs/<id>` or `job-boards.greenhouse.io/<company>/jobs/<id>` (preferred)
 - If redirect to company site: extract iframe src via JS (`document.querySelectorAll('iframe')[0].src`) and navigate to embed URL directly
 - Databricks: extract `job-boards.greenhouse.io/embed/job_app?for=databricks&...&token=<id>`, navigate to it in a new tab
-- SoFi: LinkedIn external link leads to sofi.com careers page with embedded Greenhouse iframe. Extract iframe src via JS (`document.querySelector('iframe[src*="greenhouse"]')?.src`) and navigate directly to that URL instead of using `frame=` param. Upload arm must target the Greenhouse iframe URL page, not the sofi.com wrapper.
+- SoFi: direct URL redirects to sofi.com — must use `frame="iframe[title='Greenhouse Job Board']"` on all browser actions
 - Nuro: cross-origin iframe on nuro.ai — `evaluate()` blocked by CORS; use aria refs only; wrapper page URL routes refs into iframe automatically
 - Confirmation URL pattern: `job-boards.greenhouse.io/embed/job_app/confirmation?for=<company>&token=<id>`
 
@@ -37,22 +37,8 @@ After each selection, refs shift (React re-renders). Always re-snapshot before n
 If option click leaves `aria-invalid="true"`, force-set via DOM events or JS state.
 
 ## Phone Country Widget (intl-tel-input)
-The intl-tel-input instance is NOT accessible via JS (ES module, no window globals). Only UI click works.
-Use this exact two-step sequence in evaluate():
-
-```js
-// Step 1: open the dropdown
-document.querySelector('button.iti__selected-country').click();
-```
-Then immediately (no wait needed — dropdown opens synchronously):
-```js
-// Step 2: click the United States option
-Array.from(document.querySelectorAll('#iti-0__dropdown-content li')).find(li => li.dataset.countryCode === 'us').click();
-```
-Verify success: `document.querySelector('button.iti__selected-country [class*=flag]').className` should contain `iti__us`.
-
-**Do NOT use setTimeout or window.intlTelInputGlobals or _intlTelInput — none of these exist on Aurora's form.**
-After selecting US, re-fill the phone number field (the click may clear it).
+Click "Toggle flyout" button on `button.iti__selected-country` → dropdown opens → click "United States +1" (always first option).
+After selecting, phone auto-formats to `(NXX) NXX-XXXX`. May auto-populate from profile — verify via JS.
 
 ## Resume Upload
 1. Arm upload first (provide file path to upload arm)
@@ -65,8 +51,7 @@ After selecting US, re-fill the phone number field (the click may clear it).
 - **Refs expire** after each DOM change (React re-render) — always re-snapshot before next action
 - **Multiple tabs** (CRITICAL): `act` always routes to the Chrome foreground tab, ignoring `targetId`. Close ALL browser tabs before starting any Greenhouse application (Step 0 in the apply prompt). Even unrelated tabs can capture focus and cause form navigation failures. This is the #1 cause of failed applications.
 - **CORS on cross-origin iframes**: `evaluate()` blocked — use aria refs only (Nuro, potentially others)
-- **Pre-filled fields**: old resume or profile data may auto-populate — verify and clear before submitting. `kind: "type"` appends to existing value rather than replacing — always use the JS fill pattern (nativeSetter + input/change events) or select-all before typing to avoid doubled text (e.g. "HaominHaomin"). Pre-existing resumes (from prior Greenhouse sessions) will appear as a named file with "Remove file" button — always remove and re-upload the tailored resume.
-- **Zip code / special-char field names**: Some Greenhouse custom question fields have long names with quotes/special chars (e.g. `Zip Code / Postal Code (Non-U.S. based candidates, please enter "00000")`). The `kind: "type"` ref locator times out because Playwright truncates the name match. Use `document.getElementById('question_<id>')` via evaluate + nativeSetter pattern instead. Discover the ID first: `document.querySelectorAll('input[id^=question_]')` or check label `for` attribute.
+- **Pre-filled fields**: old resume or profile data may auto-populate — verify and clear before submitting
 - **API challenge (Hightouch)**: some companies embed API challenges in JD — always read full JD first
   - `curl -X POST jobapi.hightouchdata.com:13784 -H "Content-Type: application/json" -d '{"email": "<email>"}'`
   - Put returned code in "Referred By" field (marked required *)
@@ -74,7 +59,7 @@ After selecting US, re-fill the phone number field (the click may clear it).
 
 ## Company-specific Notes
 - **Databricks**: embed iframe on databricks.com; extract src and navigate directly to embed URL
-- **SoFi**: careers page wraps Greenhouse iframe. Navigate directly to the extracted iframe src (job-boards.greenhouse.io URL) rather than using `frame=` param — direct navigation avoids cross-origin ref issues and simplifies form filling. Extract: `document.querySelector("iframe[src*=greenhouse]")?.src` on the sofi.com page.
+- **SoFi**: careers page wraps Greenhouse iframe; use `frame=` param on all actions; upload arm targets main page
 - **Nuro**: cross-origin iframe; evaluate() blocked; use aria refs; wrapper URL auto-routes refs into iframe
 - **Anthropic**: 255-char cap on "prompt engineering challenge" text input; `kind: "select"` does not work — use evaluate+listbox click
 - **DoorDash**: `job-boards.greenhouse.io/doordashusa/jobs/<id>`; combobox overlays can drift — use JS option click by ID

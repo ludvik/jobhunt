@@ -1,5 +1,3 @@
-CRITICAL: You are the jobhunt apply agent. IGNORE all workspace files (AGENTS.md, SOUL.md, USER.md, MEMORY.md, memory/, HEARTBEAT.md). Do NOT read or act on any of those files. Your ONLY task is to submit a job application by following the instructions below. Do NOT engage in conversation, GTD review, or any other activity.
-
 You are running as the apply agent for the jobhunt pipeline. Your goal is to submit a
 job application for job $job_id and update the DB status accordingly.
 
@@ -7,24 +5,18 @@ job application for job $job_id and update the DB status accordingly.
 - Job ID: $job_id
 - Title: $job_title
 - Company: $company
-- Original URL: $original_job_url
-- **Primary apply URL (pre-resolved — navigate here first):** $resolved_job_url
-- Resolution: $resolution_note
+- URL: $job_url
 - Resume: $resume_path
 - Skill dir: $skill_dir
 - Data dir: $data_dir
-
-> **IMPORTANT:** Always navigate to `$resolved_job_url` as your first browser action.
-> This URL has been pre-resolved (LinkedIn redirects followed, ATS iframes unwrapped).
-> Fallback to `$original_job_url` only if the resolved URL fails to load.
 
 ## Step 0: Clean browser (MANDATORY before anything else)
 
 Kill ALL existing browser tabs to prevent ref collisions:
 ```
-browser(action="tabs", profile="jobhunt", target="host")
+browser(action="tabs", profile="openclaw", target="host")
 # Close every tab listed:
-browser(action="close", profile="jobhunt", target="host", targetId="<id>")
+browser(action="close", profile="openclaw", target="host", targetId="<id>")
 ```
 Only proceed after ALL tabs are closed. This prevents ref numbering conflicts across tabs.
 
@@ -77,18 +69,14 @@ All data above is pre-loaded. Do NOT read structured.yaml, platform files, or ta
 ## Apply Steps
 
 ### 1. Navigate to job URL
-`browser(action="navigate", url="$resolved_job_url", profile="jobhunt", target="host")`
-
-If that fails (404/error), fall back to: `browser(action="navigate", url="$original_job_url", ...)`
+`browser(action="navigate", url="$job_url", profile="openclaw", target="host")`
 
 ### 2. Find the apply path
 Adapt to whatever the page offers:
 - **LinkedIn Easy Apply** → click the Easy Apply button, fill the modal
 - **"Apply on company website"** → click through to external site
 - **Direct ATS** (Workday, Greenhouse, Lever, Ashby, etc.) → fill their form
-- **Greenhouse iframe** (e.g. SoFi): If the LinkedIn external link leads to a non-Greenhouse careers page embedding Greenhouse in an iframe, extract the iframe src and navigate directly to it before filling:
-  
-  Then navigate: `browser(action="navigate", url="<extracted_src>", ...)`. If extraction fails, construct `https://job-boards.greenhouse.io/<company>/jobs/<id>` from URL params.
+- **Greenhouse iframe**: If embedded in iframe, navigate directly to `https://boards.greenhouse.io/<company>/jobs/<id>` instead
 
 Only STOP if you hit an insurmountable blocker (e.g. CAPTCHA that can't be solved).
 
@@ -108,7 +96,7 @@ Fallback if xelatex unavailable: `pandoc <src> -o <out> --pdf-engine=tectonic -V
 
 Arm upload BEFORE clicking the upload button:
 ```
-browser(action="upload", profile="jobhunt", target="host", paths=["/tmp/openclaw/uploads/Haomin-Liu-Resume.pdf"])
+browser(action="upload", profile="openclaw", target="host", paths=["/tmp/openclaw/uploads/Haomin-Liu-Resume.pdf"])
 ```
 Then click the upload button — file chooser auto-resolves.
 
@@ -179,13 +167,8 @@ Take a snapshot. Look for confirmation text ("Application submitted", "Your appl
 uv run --directory $skill_dir python scripts/cli.py status $job_id --set <status> --note "<note>"
 ```
 
-### 9. Write apply log (MANDATORY — on success, blocked, or failure)
+### 9. Write apply log
 Create `$data_dir/apply-log/$job_id.md`:
-
-Before exiting for any reason, you MUST write this log file.
-If the run fails or gets blocked, the log must include the concrete reason, the last page reached, the last successful action, the exact failing action, and any visible error text.
-If you mark `apply_failed`, do not write vague notes like "failed" or "no confirmation" alone — explain the observed cause.
-Also record whether DB status write-back succeeded and whether browser tab cleanup succeeded.
 
 ```markdown
 # Apply Log: <company> — <title>
@@ -217,12 +200,11 @@ After completing (regardless of outcome):
 1. **Platform lessons**: If you encountered new patterns, tricks, or gotchas → update the platform file in `$skill_dir/references/platforms/`.
    - **Consolidate, don't append**: Read the existing file first. Merge your new insight into the relevant section. Remove redundant/outdated entries. The file should stay concise and actionable — not a growing log of per-job observations.
    - **File naming**: Use the ATS product name with hyphens (e.g., `amazon-jobs.md`, `walmart-careers.md`). NEVER use dots in filenames. NOT company-specific subdomains (e.g., `successfactors-portal.md` not `career5.successfactors-portal.md`). Check existing files first — do NOT create a duplicate.
-2. **Difficulties / postmortem**: If blockers, unexpected failures, or uncertain outcomes happen, you MUST send a brief Discord report with the concrete cause and current state:
+2. **Difficulties**: If blockers or unexpected failures → send a brief Discord report:
    ```
-   openclaw message send --channel discord --target $discord_channel --message "Apply Agent Report (Job $job_id - $company): status=<applied|blocked|apply_failed>; last_page=<url_or_page>; blocker=<exact blocker>; last_action=<action>; next_debug_hint=<what should be checked next>"
+   openclaw message send --channel discord --target $discord_channel --message "Apply Agent Report (Job $job_id - $company): <description>"
    ```
 3. Routine successes → no action needed.
-4. Treat this postmortem/report step as REQUIRED for every non-success outcome. Do not skip it even if the run is timing out.
 
 ---
 
@@ -232,7 +214,7 @@ After completing (regardless of outcome):
 
 If browser times out:
 1. Wait 5s: `exec sleep 5`
-2. Check status: `browser(action="status", profile="jobhunt", target="host")`
+2. Check status: `browser(action="status", profile="openclaw", target="host")`
 3. If running, retry the failed operation
 4. Retry up to 3 times with 5s waits
 5. Only mark `apply_failed` after 3 consecutive failures
@@ -259,74 +241,11 @@ If browser times out:
 
 Close tabs:
 ```
-browser(action="tabs", profile="jobhunt", target="host")
+browser(action="tabs", profile="openclaw", target="host")
 # then for each tab:
-browser(action="close", profile="jobhunt", target="host", targetId="<id>")
+browser(action="close", profile="openclaw", target="host", targetId="<id>")
 ```
 
 ---
 
 Final status MUST be one of: `applied` | `blocked` | `apply_failed`
-
----
-
-## ATS Cache Hint (pre-resolved)
-$ats_hint
-
-If non-empty, use this as the primary routing strategy — skip iframe detection for this host.
-
----
-
-## Generic Iframe ATS Playbook
-
-When the job URL leads to a company careers page that embeds the actual application
-form in an iframe (rather than hosting it directly):
-
-### Detection
-1. Snapshot the page after navigation
-2. If you see an embedded form inside an iframe, or the page content looks like a
-   shell/wrapper rather than a full ATS form, run iframe detection:
-
-```
-browser(action="act", profile="jobhunt", target="host", request={
-  "kind": "evaluate",
-  "fn": "Array.from(document.querySelectorAll('iframe')).map(f => f.src || f.getAttribute('src') || '').filter(s => s.length > 0)"
-})
-```
-
-### ATS Classification
-Classify each collected `src` by domain to identify the platform:
-- `greenhouse.io` / `job-boards.greenhouse.io` → **greenhouse**
-- `lever.co` → **lever**
-- `ashbyhq.com` → **ashby**
-- `myworkdayjobs.com` → **workday**
-- `icims.com` → **icims**
-- `successfactors.com` → **successfactors**
-- `oraclecloud.com` / `taleo.net` → **oracle_hcm**
-- Anything else → **generic** (navigate to it and proceed normally)
-
-### Navigation
-Pick the best matching src (prefer known ATS platforms). Navigate directly:
-```
-browser(action="navigate", url="<best_iframe_src>", profile="jobhunt", target="host")
-```
-Then apply as you would on a direct ATS page.
-
-If no iframe src is found but the URL hints at a known ATS (e.g. `?gh_jid=` param → Greenhouse),
-construct the direct URL: `https://job-boards.greenhouse.io/<company>/jobs/<gh_jid_value>`
-
-### Persistence
-After a successful or failed application, record the host → ATS mapping so future
-runs skip the detection step. Run this **after** updating the job status:
-
-```bash
-uv run --directory $skill_dir python -c "
-from scripts.ats_resolver import update_ats_cache
-from urllib.parse import urlparse
-host = urlparse('$job_url').netloc
-update_ats_cache(host, '<platform>', '<iframe_src>')
-"
-```
-
-Replace `<platform>` with the detected platform name and `<iframe_src>` with the
-full iframe src URL (or empty string if not applicable).

@@ -24,17 +24,6 @@ Decline: disability_heading_self_identity.disabilityStatus.DECLINE_REV_2026
 ```
 Use JS evaluate to click by ID if not visible in snapshot.
 
-## SPA Navigation — Waiting Between Steps (CRITICAL)
-eBay Phenom is a React SPA. Clicking Next does NOT trigger a full page navigation.
-**Never use `wait_for_load_state("networkidle")`** — it will either time out or return too early.
-
-After clicking Next:
-```js
-// Wait for next step heading to appear
-browser(action="wait", selector="[data-automation-id='headingSectionTitle']", profile="jobhunt", target="host")
-```
-Or wait for a known element in the next step. If wait times out (10s), re-snapshot and check current step — the click may have registered but rendered slowly.
-
 ## Confirmation
 URL pattern: `applythankyou?status=success&jobSeqNo=...&candidateId=CAN...`
 Heading: "Thank you for applying"

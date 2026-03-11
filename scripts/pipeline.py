@@ -19,8 +19,6 @@ from string import Template
 
 import yaml
 
-from scripts.ats_resolver import classify_ats_from_url, get_ats_hint_for_url
-
 # ── Paths ─────────────────────────────────────────────────────────────────────
 SKILL_DIR = Path(__file__).parent.parent.resolve()
 DATA_DIR = Path.home() / ".openclaw" / "data" / "jobhunt"
@@ -120,8 +118,7 @@ def load_agent_config(role: str, global_config: dict,
 
 # ── Agent invocation ──────────────────────────────────────────────────────────
 def run_agent(session_id: str, prompt: str, timeout: int, thinking: str,
-              dry_run: bool, log: logging.Logger, model: str | None = None,
-              agent: str | None = None) -> dict:
+              dry_run: bool, log: logging.Logger, model: str | None = None) -> dict:
     """Invoke openclaw agent, return parsed JSON result."""
     cmd = [
         "openclaw", "agent",
@@ -131,9 +128,8 @@ def run_agent(session_id: str, prompt: str, timeout: int, thinking: str,
         "--timeout", str(timeout),
         "--json",
     ]
-    if agent:
-        cmd.extend(["--agent", agent])
-    log.info("PIPELINE: Invoking agent session=%s model=%s timeout=%ds", session_id, model or "agent-default", timeout)
+    # model is configured at agent/session level, not per CLI call
+    log.info("PIPELINE: Invoking agent session=%s timeout=%ds", session_id, timeout)
     log.debug("PIPELINE: Command: %s", " ".join(cmd))
 
     if dry_run:
@@ -182,38 +178,6 @@ def run_agent(session_id: str, prompt: str, timeout: int, thinking: str,
     except Exception as exc:
         log.error("PIPELINE: Agent %s unexpected error: %s", session_id, exc)
         return {"error": str(exc)}
-
-
-def _reset_agent_session(agent_name: str, log: logging.Logger) -> None:
-    """Delete agent session files and registry so gateway creates a fresh session."""
-    sessions_dir = Path.home() / ".openclaw" / "agents" / agent_name / "sessions"
-    if not sessions_dir.exists():
-        return
-    removed = 0
-    # Delete all jsonl files (conversation history)
-    for f in sessions_dir.glob("*.jsonl"):
-        try:
-            f.unlink(missing_ok=True)
-            removed += 1
-        except Exception as e:
-            log.warning("PIPELINE: Failed to delete session file %s: %s", f, e)
-    # Delete lock files
-    for f in sessions_dir.glob("*.lock"):
-        try:
-            f.unlink(missing_ok=True)
-        except Exception:
-            pass
-    # Reset sessions.json to empty dict so gateway doesn't find cached session
-    sj = sessions_dir / "sessions.json"
-    if sj.exists():
-        try:
-            sj.write_text("{}")
-            removed += 1
-        except Exception as e:
-            log.warning("PIPELINE: Failed to reset sessions.json: %s", e)
-    if removed:
-        log.info("PIPELINE: Deleted %d session file(s) + reset sessions.json for agent %s",
-                 removed, agent_name)
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
@@ -509,7 +473,6 @@ DIRECTION: <ai|ic|mgmt|venture>
     
     result = subprocess.run(
         ["openclaw", "agent",
-         "--agent", "jobhunt-apply",
          "--session-id", session_id,
          "--message", f"RESPOND DIRECTLY. Do NOT use any tools. Do NOT read any files. All input is below.\n\n{combined_prompt}",
          "--thinking", "off",
@@ -587,177 +550,6 @@ DIRECTION: <ai|ic|mgmt|venture>
 
     log.info("PIPELINE: Job %d: Tailored (direction=%s, %d chars)", jid, direction, len(resume_md))
     return True
-
-
-def _force_apply_failed(db_path: Path, job_id: int, note: str, log: logging.Logger) -> None:
-    """Write apply_failed to DB if job status is not already terminal.
-
-    Called as a guard when the apply agent exits without writing its own status.
-    Only acts when current status is 'tailored' (i.e. still pre-apply).
-    """
-    current = get_job_status(db_path, job_id)
-    if current in ("applied", "blocked", "apply_failed"):
-        return  # agent already wrote status — do not overwrite
-    log.warning(
-        "PIPELINE: _force_apply_failed: job %d status=%s — writing apply_failed (note=%s)",
-        job_id, current, note,
-    )
-    try:
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                "UPDATE jobs SET status='apply_failed', status_updated_at=datetime('now') WHERE id=?",
-                (job_id,),
-            )
-    except Exception as exc:
-        log.error("PIPELINE: _force_apply_failed: DB write failed for job %d: %s", job_id, exc)
-
-
-# ── ATS pre-resolution ────────────────────────────────────────────────────────
-
-def _extract_linkedin_external_url(job_url: str, timeout: int = 15) -> str | None:
-    """Open a LinkedIn job page and extract the external apply URL via browser evaluate.
-
-    Returns the href of the first non-LinkedIn "Apply" / "company website" link,
-    or None if not found or on any error.  Total wall-clock time is bounded by
-    *timeout* (seconds, default 15).
-    """
-    # JS that finds the first non-LinkedIn "apply" anchor on the page
-    js_fn = (
-        "() => {"
-        "  const links = Array.from(document.querySelectorAll('a'));"
-        "  for (const a of links) {"
-        "    const text = (a.textContent || '').toLowerCase().trim();"
-        "    const href = a.href || '';"
-        "    if ((text.includes('apply') || text.includes('company website'))"
-        "        && href && !href.includes('linkedin.com')) {"
-        "      return href;"
-        "    }"
-        "  }"
-        "  return null;"
-        "}"
-    )
-    nav_timeout = max(timeout - 5, 5)
-    try:
-        nav = subprocess.run(
-            ["openclaw", "browser", "--browser-profile", "openclaw", "navigate", job_url],
-            capture_output=True, text=True, timeout=nav_timeout,
-        )
-        if nav.returncode != 0:
-            return None
-        time.sleep(2)  # brief settle for JS rendering
-        eval_result = subprocess.run(
-            ["openclaw", "browser", "--browser-profile", "openclaw", "evaluate",
-             "--fn", js_fn],
-            capture_output=True, text=True, timeout=10,
-        )
-        if eval_result.returncode != 0:
-            return None
-        raw = eval_result.stdout.strip()
-        if not raw:
-            return None
-        # Output may be JSON-encoded string or raw URL
-        try:
-            val = json.loads(raw)
-            if isinstance(val, str) and val.startswith("http"):
-                return val
-        except Exception:
-            if raw.startswith("http"):
-                return raw
-    except Exception:
-        pass
-    return None
-
-
-def resolve_apply_url(
-    job_url: str,
-    job_id: int,
-    company: str,
-    log: logging.Logger | None = None,
-    _linkedin_extractor=None,  # injectable for tests
-) -> tuple[str, str]:
-    """Compute the best apply URL before handing off to the apply agent.
-
-    Resolution pipeline (total time ≤ 20 s):
-      1. LinkedIn URL  → extract external apply link via browser evaluate (≤15 s)
-      2. Classify the resolved URL with classify_ats_from_url
-         - Known ATS → return as-is (already a form URL)
-      3. Non-ATS / company page → check ATS cache by host
-         - Cache hit with iframe_src → use iframe_src as final URL
-         - Cache hit without iframe_src → keep URL, note platform hint
-         - No cache → keep URL, note "company_page_no_cache"
-
-    Args:
-        job_url:             Raw job URL from DB (may be LinkedIn or direct ATS).
-        job_id:              Job ID for logging.
-        company:             Company name for logging.
-        log:                 Optional logger.
-        _linkedin_extractor: Override for _extract_linkedin_external_url (testing).
-
-    Returns:
-        (final_url, resolution_note)
-        resolution_note is a semicolon-separated chain of hints, e.g.
-        "linkedin_external;ats_direct:greenhouse"
-    """
-    from urllib.parse import urlparse
-
-    _log = log or logging.getLogger("pipeline")
-
-    if not job_url:
-        return "", "no_url"
-
-    resolved_url = job_url
-    notes: list[str] = []
-
-    # ── Step 1: LinkedIn external link extraction ─────────────────────────────
-    try:
-        parsed = urlparse(job_url)
-        is_linkedin = "linkedin.com" in parsed.netloc.lower()
-    except Exception:
-        is_linkedin = False
-
-    extractor = _linkedin_extractor if _linkedin_extractor is not None else _extract_linkedin_external_url
-
-    if is_linkedin:
-        try:
-            external = extractor(job_url, timeout=15)
-            if external:
-                _log.info("PIPELINE: Job %d: LinkedIn → external URL: %s", job_id, external)
-                resolved_url = external
-                notes.append("linkedin_external")
-            else:
-                _log.info("PIPELINE: Job %d: LinkedIn — no external URL found, using original", job_id)
-                notes.append("linkedin_no_external")
-        except Exception as exc:
-            _log.warning("PIPELINE: Job %d: LinkedIn extraction error: %s", job_id, exc)
-            notes.append("linkedin_extract_failed")
-
-    # ── Step 2: ATS classification ────────────────────────────────────────────
-    ats_platform = classify_ats_from_url(resolved_url)
-    if ats_platform != "generic":
-        notes.append(f"ats_direct:{ats_platform}")
-        _log.info("PIPELINE: Job %d: Resolved URL classified as %s — using directly",
-                  job_id, ats_platform)
-        return resolved_url, ";".join(notes)
-
-    # ── Step 3: Cache lookup for iframe hint ──────────────────────────────────
-    cache_hint = get_ats_hint_for_url(resolved_url)
-    if cache_hint:
-        platform = cache_hint.get("platform", "generic")
-        iframe_src = cache_hint.get("iframe_src", "")
-        if iframe_src and iframe_src.startswith("http"):
-            notes.append(f"cache_iframe:{platform}")
-            _log.info("PIPELINE: Job %d: Cache hit — iframe src (%s): %s",
-                      job_id, platform, iframe_src)
-            return iframe_src, ";".join(notes)
-        else:
-            notes.append(f"cache_hint:{platform}")
-            _log.info("PIPELINE: Job %d: Cache hit — platform %s, no iframe src; keeping URL",
-                      job_id, platform)
-    else:
-        notes.append("company_page_no_cache")
-        _log.info("PIPELINE: Job %d: Non-ATS company page — no cache entry", job_id)
-
-    return resolved_url, ";".join(notes)
 
 
 def main() -> None:
@@ -847,17 +639,6 @@ def main() -> None:
         log.info("PIPELINE: [DRY RUN] Plan complete. No changes made.")
         sys.exit(0)
 
-    # Ensure jobhunt browser profile is running for apply phase
-    if queue_apply or queue_tailor:
-        try:
-            subprocess.run(
-                ["openclaw", "browser", "start", "--browser-profile", "jobhunt"],
-                capture_output=True, timeout=15,
-            )
-            log.info("PIPELINE: Jobhunt browser profile started (or already running)")
-        except Exception as e:
-            log.warning("PIPELINE: Failed to start jobhunt browser: %s", e)
-
     # Step 3: Unified sequential loop — tailor then apply each job
     tailor_cfg = load_agent_config("tailor", config)
     apply_cfg = load_agent_config("apply", config)
@@ -905,64 +686,30 @@ def main() -> None:
             structured_yaml = structured_path.read_text()
 
         platform_knowledge = ""
+        job_url = job["url"] or ""
         platform_dir = SKILL_DIR / "references" / "platforms"
+        if platform_dir.exists():
+            for pf in platform_dir.glob("*.md"):
+                if pf.name == "README.md":
+                    continue
+                # Match platform file by checking if domain appears in job URL
+                stem = pf.stem  # e.g. "greenhouse", "amazon-jobs"
+                # Simple heuristic: check stem keywords in URL
+                keywords = stem.replace("-", " ").replace(".", " ").split()
+                if any(kw in job_url.lower() for kw in keywords if len(kw) > 3):
+                    platform_knowledge = pf.read_text()
+                    log.info("PIPELINE: Job %d: Matched platform file %s", jid, pf.name)
+                    break
 
         tailored_md = ""
         if resume_path.exists():
             tailored_md = resume_path.read_text()
 
-        # ── ATS pre-resolution ────────────────────────────────────────────────
-        original_job_url = job["url"] or ""
-        log.info("PIPELINE: Job %d: Resolving apply URL from %s", jid, original_job_url)
-        resolved_job_url, resolution_note = resolve_apply_url(
-            original_job_url, jid, job["company"] or "", log=log
-        )
-        log.info("PIPELINE: Job %d: Resolved URL=%s note=%s", jid, resolved_job_url, resolution_note)
-
-        # Match platform knowledge against resolved URL (not original URL)
-        detected_platform = classify_ats_from_url(resolved_job_url)
-        matched_platform_file = "(none)"
-        if platform_dir.exists():
-            stopwords = {"jobs", "career", "careers", "apply", "portal", "work"}
-            url_lower = (resolved_job_url or "").lower()
-            for pf in platform_dir.glob("*.md"):
-                if pf.name == "README.md":
-                    continue
-                stem = pf.stem
-                keywords = [kw for kw in stem.replace("-", " ").replace(".", " ").split() if len(kw) > 3 and kw not in stopwords]
-                if any(kw in url_lower for kw in keywords):
-                    platform_knowledge = pf.read_text()
-                    matched_platform_file = pf.name
-                    break
-
-        log.info(
-            "PIPELINE: Routing info — job_id=%d title=%r company=%r platform=%s platform_file=%s",
-            jid,
-            job.get("title") or "",
-            job.get("company") or "",
-            detected_platform,
-            matched_platform_file,
-        )
-
-        # Build legacy ats_hint_text for backward compat (still injected into prompt)
-        ats_hint = get_ats_hint_for_url(resolved_job_url)
-        ats_hint_text = ""
-        if ats_hint:
-            ats_hint_text = (
-                f"ATS cache: host has platform={ats_hint['platform']}"
-                + (f", iframe_src={ats_hint['iframe_src']}" if ats_hint.get("iframe_src") else "")
-                + f" (cached {ats_hint.get('updated_at', 'unknown')})"
-            )
-            log.info("PIPELINE: Job %d: ATS cache hit — %s", jid, ats_hint_text)
-
         prompt_vars = {
             "job_id": jid,
             "job_title": job["title"],
             "company": job["company"],
-            "job_url": resolved_job_url,          # primary URL for agent navigation
-            "original_job_url": original_job_url,
-            "resolved_job_url": resolved_job_url,
-            "resolution_note": resolution_note,
+            "job_url": job["url"],
             "skill_dir": str(SKILL_DIR),
             "data_dir": str(DATA_DIR),
             "resume_path": final_resume,
@@ -970,7 +717,6 @@ def main() -> None:
             "structured_yaml_content": structured_yaml,
             "platform_knowledge_content": platform_knowledge,
             "tailored_resume_content": tailored_md,
-            "ats_hint": ats_hint_text,
         }
         prompt = load_prompt("apply", prompt_vars)
         timeout = apply_cfg.get("apply_timeout", 600)
@@ -978,56 +724,37 @@ def main() -> None:
         model = apply_cfg.get("model", None)
         session_id = f"jobhunt-apply-{jid}"
 
-        agent_name = apply_cfg.get("agent", "jobhunt-apply")
-
-        # Reset agent session before each job to prevent context leakage
-        _reset_agent_session(agent_name, log)
-
-        agent_result = run_agent(session_id, prompt, timeout, thinking, args.dry_run, log, model=model, agent=agent_name)
+        agent_result = run_agent(session_id, prompt, timeout, thinking, args.dry_run, log)
 
         if "error" in agent_result:
-            log.error("PIPELINE: Job %d: Apply error — %s", jid, agent_result["error"])
-            # Force-writeback: agent exited with error and may not have updated status
-            _force_apply_failed(db_path, jid, "apply_agent_error", log)
+            log.error("PIPELINE: Job %d: Apply agent error — %s", jid, agent_result["error"])
             results["apply_failed"] += 1
             continue
 
-        # Poll DB for final status — wait proportional to apply_timeout (not fixed 60s)
-        poll_limit = min(120, max(60, timeout // 6))
-        poll_iters = poll_limit // 2
-        log.info("PIPELINE: Job %d: Polling DB for final status (up to %ds)...", jid, poll_limit)
+        # Poll DB for final status (max 60s)
+        log.info("PIPELINE: Job %d: Polling DB for final status (up to 60s)...", jid)
         final_status: str | None = None
-        for _ in range(poll_iters):
+        for _ in range(30):
             time.sleep(2)
             final_status = get_job_status(db_path, jid)
             if final_status in ("applied", "blocked", "apply_failed"):
                 log.info("PIPELINE: Job %d: DB status confirmed = %s", jid, final_status)
                 break
         else:
-            log.warning("PIPELINE: Job %d: DB polling timed out (%ds). Status = %s",
-                        jid, poll_limit, final_status)
-
-        # Guard: if agent exited without writing a terminal status, force apply_failed
-        if final_status not in ("applied", "blocked", "apply_failed"):
-            log.warning(
-                "PIPELINE: Job %d: Status still '%s' after agent exit — forcing apply_failed",
-                jid, final_status,
-            )
-            _force_apply_failed(db_path, jid, "apply_agent_no_status_update", log)
-            final_status = "apply_failed"
+            log.warning("PIPELINE: Job %d: DB polling timed out (60s). Status = %s", jid, final_status)
 
         log.info("PIPELINE: Job %d: Final status = %s", jid, final_status)
 
         # Clean up browser tabs after each job
         try:
             import urllib.request, json as _json
-            tabs_raw = urllib.request.urlopen("http://127.0.0.1:18801/json/list", timeout=3).read()
+            tabs_raw = urllib.request.urlopen("http://127.0.0.1:18800/json/list", timeout=3).read()
             tabs = _json.loads(tabs_raw)
             closed = 0
             for t in tabs:
                 if t.get("type") == "page":
                     try:
-                        urllib.request.urlopen(f"http://127.0.0.1:18801/json/close/{t['id']}", timeout=2)
+                        urllib.request.urlopen(f"http://127.0.0.1:18800/json/close/{t['id']}", timeout=2)
                         closed += 1
                     except Exception:
                         pass
