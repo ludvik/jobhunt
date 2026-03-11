@@ -469,7 +469,7 @@ DIRECTION: <ai|ic|mgmt|venture>
 
     # Call LLM via openclaw agent with no-tool instruction
     log.info("PIPELINE: Job %d: Running code-driven tailor (single LLM call)", jid)
-    session_id = f"jobhunt-tailor-{jid}"
+    session_id = f"jobhunt-tailor-{jid}-{int(time.time())}"
     
     result = subprocess.run(
         ["openclaw", "agent",
@@ -722,7 +722,7 @@ def main() -> None:
         timeout = apply_cfg.get("apply_timeout", 600)
         thinking = apply_cfg.get("thinking_level", "low")
         model = apply_cfg.get("model", None)
-        session_id = f"jobhunt-apply-{jid}"
+        session_id = f"jobhunt-apply-{jid}-{int(time.time())}"
 
         agent_result = run_agent(session_id, prompt, timeout, thinking, args.dry_run, log)
 
