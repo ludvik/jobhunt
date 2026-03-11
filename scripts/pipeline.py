@@ -184,6 +184,22 @@ def run_agent(session_id: str, prompt: str, timeout: int, thinking: str,
         return {"error": str(exc)}
 
 
+def _reset_agent_session(agent_name: str, log: logging.Logger) -> None:
+    """Clear agent session history so each job starts with a fresh context."""
+    sessions_dir = Path.home() / ".openclaw" / "agents" / agent_name / "sessions"
+    if not sessions_dir.exists():
+        return
+    cleared = 0
+    for f in sessions_dir.glob("*.jsonl"):
+        try:
+            f.write_text("")
+            cleared += 1
+        except Exception as e:
+            log.warning("PIPELINE: Failed to clear session file %s: %s", f, e)
+    if cleared:
+        log.info("PIPELINE: Reset %d session file(s) for agent %s", cleared, agent_name)
+
+
 # ── DB helpers ────────────────────────────────────────────────────────────────
 def get_eligible_jobs(db_path: Path, limit: int) -> list[dict]:
     """Return jobs with status='new', up to limit."""
@@ -947,6 +963,10 @@ def main() -> None:
         session_id = f"jobhunt-apply-{jid}"
 
         agent_name = apply_cfg.get("agent", "jobhunt-apply")
+
+        # Reset agent session before each job to prevent context leakage
+        _reset_agent_session(agent_name, log)
+
         agent_result = run_agent(session_id, prompt, timeout, thinking, args.dry_run, log, model=model, agent=agent_name)
 
         if "error" in agent_result:
