@@ -1002,7 +1002,17 @@ def main() -> None:
         session_id = f"jobhunt-apply-{jid}"
 
         # ── Route: Browser Use vs openclaw agent ──────────────────────────────
-        use_bu = detected_platform in BU_PLATFORMS or apply_cfg.get("force_browser_use", False)
+        # BU handles any platform that may need visual form interaction.
+        # "generic" / "linkedin" means URL not yet resolved — BU navigates + detects itself.
+        use_bu = (
+            detected_platform in BU_PLATFORMS
+            or detected_platform in ("generic", "linkedin")
+            or apply_cfg.get("force_browser_use", False)
+        )
+        # Override: known simple/fast platforms stay with openclaw agent
+        _AGENT_ONLY_PLATFORMS = {"linkedin-easy"}
+        if detected_platform in _AGENT_ONLY_PLATFORMS:
+            use_bu = False
         if use_bu:
             log.info("PIPELINE: Job %d: Routing to Browser Use (platform=%s)", jid, detected_platform)
             agent_result = run_bu_apply(
