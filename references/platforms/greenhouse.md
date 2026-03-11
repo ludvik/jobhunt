@@ -37,24 +37,22 @@ After each selection, refs shift (React re-renders). Always re-snapshot before n
 If option click leaves `aria-invalid="true"`, force-set via DOM events or JS state.
 
 ## Phone Country Widget (intl-tel-input)
-Standard click approach often fails (dropdown doesn't render options reliably in automation). Use JS directly:
+The intl-tel-input instance is NOT accessible via JS (ES module, no window globals). Only UI click works.
+Use this exact two-step sequence in evaluate():
+
 ```js
-// Force US country selection on intl-tel-input
-var phoneInput = document.querySelector('input[type=tel]') || document.getElementById('phone');
-if (phoneInput && phoneInput._intlTelInput) {
-  phoneInput._intlTelInput.setCountry('us');
-} else {
-  // Fallback: click the flag button then click US option
-  var btn = document.querySelector('button.iti__selected-country, .iti__flag-container button');
-  if (btn) btn.click();
-  setTimeout(function() {
-    var us = document.querySelector('li[data-country-code="us"]');
-    if (us) us.click();
-  }, 300);
-}
+// Step 1: open the dropdown
+document.querySelector('button.iti__selected-country').click();
 ```
-After selecting, phone field may auto-format. Re-fill phone value via nativeSetter if cleared.
-If intl-tel-input blocks form submit entirely, fill phone without country prefix (just digits) and skip country selector — Greenhouse usually defaults to US.
+Then immediately (no wait needed — dropdown opens synchronously):
+```js
+// Step 2: click the United States option
+Array.from(document.querySelectorAll('#iti-0__dropdown-content li')).find(li => li.dataset.countryCode === 'us').click();
+```
+Verify success: `document.querySelector('button.iti__selected-country [class*=flag]').className` should contain `iti__us`.
+
+**Do NOT use setTimeout or window.intlTelInputGlobals or _intlTelInput — none of these exist on Aurora's form.**
+After selecting US, re-fill the phone number field (the click may clear it).
 
 ## Resume Upload
 1. Arm upload first (provide file path to upload arm)
