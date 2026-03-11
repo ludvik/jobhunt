@@ -185,19 +185,35 @@ def run_agent(session_id: str, prompt: str, timeout: int, thinking: str,
 
 
 def _reset_agent_session(agent_name: str, log: logging.Logger) -> None:
-    """Clear agent session history so each job starts with a fresh context."""
+    """Delete agent session files and registry so gateway creates a fresh session."""
     sessions_dir = Path.home() / ".openclaw" / "agents" / agent_name / "sessions"
     if not sessions_dir.exists():
         return
-    cleared = 0
+    removed = 0
+    # Delete all jsonl files (conversation history)
     for f in sessions_dir.glob("*.jsonl"):
         try:
-            f.write_text("")
-            cleared += 1
+            f.unlink(missing_ok=True)
+            removed += 1
         except Exception as e:
-            log.warning("PIPELINE: Failed to clear session file %s: %s", f, e)
-    if cleared:
-        log.info("PIPELINE: Reset %d session file(s) for agent %s", cleared, agent_name)
+            log.warning("PIPELINE: Failed to delete session file %s: %s", f, e)
+    # Delete lock files
+    for f in sessions_dir.glob("*.lock"):
+        try:
+            f.unlink(missing_ok=True)
+        except Exception:
+            pass
+    # Reset sessions.json to empty dict so gateway doesn't find cached session
+    sj = sessions_dir / "sessions.json"
+    if sj.exists():
+        try:
+            sj.write_text("{}")
+            removed += 1
+        except Exception as e:
+            log.warning("PIPELINE: Failed to reset sessions.json: %s", e)
+    if removed:
+        log.info("PIPELINE: Deleted %d session file(s) + reset sessions.json for agent %s",
+                 removed, agent_name)
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
