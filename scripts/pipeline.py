@@ -639,7 +639,40 @@ def main() -> None:
         log.info("PIPELINE: [DRY RUN] Plan complete. No changes made.")
         sys.exit(0)
 
-    # Step 3: Unified sequential loop — tailor then apply each job
+    # Step 3: Browser pre-flight check (fail fast if browser unavailable)
+    _browser_ok = False
+    try:
+        import urllib.request, json as _json
+        _resp = urllib.request.urlopen("http://127.0.0.1:18800/json/version", timeout=5).read()
+        _ver = _json.loads(_resp)
+        log.info("PIPELINE: Browser pre-flight OK — %s", _ver.get("Browser", "unknown"))
+        _browser_ok = True
+    except Exception as _e:
+        log.warning("PIPELINE: Browser pre-flight FAILED (%s). Attempting restart...", _e)
+        # Try to kill zombie chrome and restart
+        try:
+            import subprocess as _sp
+            # Kill any zombie chrome on port 18800
+            _sp.run(["pkill", "-f", "remote-debugging-port=18800"], timeout=5, capture_output=True)
+            time.sleep(2)
+            _restart = _sp.run(["openclaw", "browser", "start"], timeout=30, capture_output=True, text=True)
+            log.info("PIPELINE: Browser restart output: %s", _restart.stdout[:200])
+            time.sleep(3)
+            _resp = urllib.request.urlopen("http://127.0.0.1:18800/json/version", timeout=5).read()
+            _ver = _json.loads(_resp)
+            log.info("PIPELINE: Browser recovered — %s", _ver.get("Browser", "unknown"))
+            _browser_ok = True
+        except Exception as _e2:
+            log.error("PIPELINE: Browser recovery FAILED: %s", _e2)
+
+    if not _browser_ok:
+        has_apply_jobs = any(j["status"] == "tailored" for j in unified_queue) or any(j["status"] == "new" for j in unified_queue)
+        if has_apply_jobs:
+            log.error("PIPELINE: Browser unavailable and could not recover. Aborting apply phase.")
+            notify("Pipeline aborted: browser unavailable after recovery attempt.", log, channel_id)
+            sys.exit(1)
+
+    # Step 4: Unified sequential loop — tailor then apply each job
     tailor_cfg = load_agent_config("tailor", config)
     apply_cfg = load_agent_config("apply", config)
 
@@ -742,6 +775,29 @@ def main() -> None:
                 break
         else:
             log.warning("PIPELINE: Job %d: DB polling timed out (60s). Status = %s", jid, final_status)
+            # P0 fix: agent silent failure — if status didn't change, force apply_failed
+            if final_status and final_status not in ("applied", "blocked", "apply_failed"):
+                log.warning("PIPELINE: Job %d: Agent silent failure — forcing apply_failed", jid)
+                try:
+                    with sqlite3.connect(db_path) as _conn:
+                        _conn.execute(
+                            "UPDATE jobs SET status='apply_failed', status_updated_at=datetime('now') WHERE id=?",
+                            (jid,),
+                        )
+                    # Write minimal apply log
+                    _log_dir = DATA_DIR / "apply-log"
+                    _log_dir.mkdir(parents=True, exist_ok=True)
+                    _log_file = _log_dir / f"{jid}.md"
+                    if not _log_file.exists():
+                        _log_file.write_text(
+                            f"# Apply Log: {job['company']} — {job['title']}\n"
+                            f"Job ID: {jid}\nDate: {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n\n"
+                            f"## Result\nStatus: apply_failed\n"
+                            f"Notes: Agent silent failure — returned without updating DB status or writing apply log.\n"
+                        )
+                    final_status = "apply_failed"
+                except Exception as _sf_e:
+                    log.error("PIPELINE: Job %d: Failed to write silent failure: %s", jid, _sf_e)
 
         log.info("PIPELINE: Job %d: Final status = %s", jid, final_status)
 
